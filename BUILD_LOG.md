@@ -1,5 +1,14 @@
 # BUILD_LOG
 
+## Soul coaching milestone — 2026-10-24
+
+- Added vendor-neutral observation/feedback contracts, personal-baseline multi-day heuristics, muscle-specific training and sleep proposals, opt-in SQLite memory, explicit resolution of follow-ups, and three independent coaching personalities.
+- Added local/operator-only Soul evaluation, feedback, persona, memory export/deletion routes. They never dispatch calls. Briefs are compatible with the existing Vapi assistant builder; connecting live data, the scheduler, and in-call feedback tools remains integration work.
+- Verified: `python -m pytest -q` — **139 passed**, including 50 new Soul tests. Coverage includes source/simulation separation, missing days, stale/future observations, persistent memory after restart, exact muscle follow-ups, positive-vs-distressed self-report, consent revocation, concurrent reservations, frequency limits, policy-file loading, and local API controls. One pre-existing Starlette/httpx deprecation warning remains.
+- Verified: `python -m scripts.demo_soul` — explicitly synthetic three-personality demo and care-loop lifecycle, no network or actual calls/SMS.
+- Tests ran with the declared dependencies in an isolated Python 3.12 environment. An editable pip install was not used because the existing flat-layout package discovery includes `config` and `dashboard`; source-root execution works.
+- Local memory has OS file permissions and 90-day default retention; it is not encrypted or production multi-user storage. Heuristic thresholds are configurable, not clinically validated.
+
 ## Stack & versions (resolved by uv, 2026-10-24)
 
 - Python: `.venv` interpreter (3.14; requires-python >=3.12)

@@ -60,6 +60,7 @@ def build_service() -> Service:
 async def lifespan(app: FastAPI):
     service = build_service()
     app.state.service = service
+    app.state.soul = None
     if service.autostart:
         await service.start()
     yield
@@ -90,6 +91,12 @@ def require_operator(x_operator_token: str | None = Header(default=None)) -> Non
     expected = os.environ.get("HIYO_OPERATOR_TOKEN")
     if expected and x_operator_token != expected:
         raise HTTPException(status_code=401, detail="bad operator token")
+
+
+# Soul uses the same local operator/tunnel controls; evaluating never sends a call.
+from .soul.api import install_routes  # noqa: E402
+
+install_routes(app, require_operator=require_operator, service_dependency=svc, clock=utcnow)
 
 
 def require_vapi_secret(request: Request) -> None:

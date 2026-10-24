@@ -63,6 +63,16 @@ Our goal is to work with whichever wearable health device you already use. WHOOP
 
 The **Soul workstream** defines the agent's “soul”: its consistent personality, long-term personal memory, judgment, emotional support, and coaching behavior. It describes how the coach should think and act across voice and SMS.
 
+### Three coaching personalities
+
+| Personality | How it cares |
+|---|---|
+| **The Steady Companion** | Listens first, offers reassurance, and makes the next step feel manageable |
+| **The Practical Coach** | Asks focused questions, proposes clear choices, and follows through without pressure |
+| **The Thoughtful Guide** | Explains the evidence and its limits, checks your experience, and helps you decide |
+
+Personality is independent of contact frequency and voice/SMS style. All three remember approved context, support rest, and follow up on previous concerns. See [the Soul behavior and personality guide](docs/SOUL.md) for examples and implementation details.
+
 ## Your Coach, Your Preferences
 
 - **Intervention frequency: Low / Medium / High.** Choose occasional high-value check-ins, a balanced cadence, or more frequent coaching.
@@ -81,11 +91,11 @@ Real-time Stress Score and strap vibration control are outside the initial WHOOP
 
 ## Project Status
 
-**Early prototype.** This repository includes a Python/FastAPI decision engine, simulator, operator dashboard, WHOOP BLE heart-rate adapter, calendar integration, Vapi call adapter, and tests. The coaching capabilities above describe the intended product experience; not all are implemented or verified with live devices and services. See [BUILD_LOG.md](BUILD_LOG.md) for recorded verification and limitations.
+**Early prototype.** This repository includes a Python/FastAPI decision engine, simulator, operator dashboard, WHOOP BLE heart-rate adapter, calendar integration, Vapi call adapter, and tests. The Soul prototype adds personal-baseline trend checks, opt-in SQLite memory, muscle-specific coaching proposals, follow-up tracking, and three coaching personalities. Its local APIs return proposals and model-ready briefs; they do not dispatch calls. The full product experience still needs live data and conversation integration. See [BUILD_LOG.md](BUILD_LOG.md) for recorded verification and limitations.
 
 Next steps:
 
-- [ ] Define coaching behavior, personal memory, and decision rules in the Soul workstream.
+- [x] Implement and test initial Soul behavior, personal memory, trends, follow-ups, and three coaching personalities.
 - [ ] Connect WHOOP and optional Google Calendar access.
 - [ ] Build and evaluate morning check-ins, training adjustments, and calls that ask, comfort, advise, and follow up when the user feels unwell or patterns look concerning.
 - [ ] Add voice and SMS delivery, with LiveKit, Pipecat, and Twilio under consideration.

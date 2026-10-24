@@ -1,0 +1,12 @@
+{
+  "baseline_days": 14,
+  "minimum_baseline_days": 7,
+  "persistent_days": 3,
+  "recovery_drop_points": 15,
+  "sleep_drop_hours": 1,
+  "resting_hr_rise": 8,
+  "freshness_hours": 30,
+  "cooldown_minutes": 120,
+  "followup_hours": 24,
+  "retention_days": 90
+}
