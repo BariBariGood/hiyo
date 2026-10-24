@@ -37,6 +37,25 @@ def save_webhook_end(call_id: str, payload: dict[str, Any]) -> Path:
     return p
 
 
+def append_live(message: dict[str, Any]) -> Path:
+    """Append one final transcript line to runtime/calls/<id>/live.jsonl (tail -f during calls)."""
+    from datetime import datetime, timezone
+
+    call_id = (message.get("call") or {}).get("id") or "unknown"
+    d = call_dir(call_id)
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "live.jsonl"
+    line = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "role": message.get("role"),
+        "text": message.get("transcript"),
+    }
+    with p.open("a") as f:
+        f.write(json.dumps(line) + "\n")
+    (CALLS_ROOT / "LATEST").write_text(str(d.name))
+    return p
+
+
 def recording_targets(call: dict[str, Any]) -> list[tuple[str, str]]:
     """(filename, url) pairs for every recording URL present."""
     art = call.get("artifact") or {}

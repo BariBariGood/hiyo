@@ -19,7 +19,7 @@ STYLES = {
     "balanced": {"description": "Warm and concise, evidence plus a check-in question.",
                  "verbosity": "two to four sentences"},
     "natural": {"description": "Warm, conversational, subtly familiar and responsive, not chatty by default.",
-                "verbosity": "respond in natural short turns"},
+                "verbosity": "one or two short sentences (under 25 words), then stop and listen"},
 }
 
 MAX_SYSTEM = 2500
@@ -33,6 +33,8 @@ Use their explicit self-report rather than guessing psychological states from
 wearable data. Sound human and attentive without pretending to BE human.
 Ask one question at a time. Pause and listen. Let them interrupt and end the
 call immediately. This is a phone call — keep turns short.
+If they say they feel unwell, acknowledge it in a few words and ask one
+specific question. No lectures or generic advice like "listen to your body".
 
 Hard rules:
 - Never claim to detect stress, anxiety, illness, or any medical condition.

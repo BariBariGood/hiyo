@@ -91,6 +91,7 @@ def build_assistant(brief: dict[str, str], public_base_url: str, webhook_secret:
         "model": {
             "provider": "openai",
             "model": "gpt-4o",
+            "maxTokens": 90,
             "messages": [{"role": "system", "content": brief["system"]}],
             "tools": [
                 {
@@ -104,9 +105,11 @@ def build_assistant(brief: dict[str, str], public_base_url: str, webhook_secret:
                 }
             ],
         },
+        "transcriber": {"provider": "deepgram", "model": "nova-3", "language": "en"},
         "voice": voice_config(),
         "maxDurationSeconds": 180,
         "server": server,
+        "serverMessages": ["transcript", "status-update", "end-of-call-report"],
         "artifactPlan": {
             "recordingEnabled": True,
             "recordingFormat": "wav;l16",

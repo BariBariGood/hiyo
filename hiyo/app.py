@@ -377,6 +377,10 @@ async def vapi_tool(request: Request, service: Service = Depends(svc), _: None =
                 args = json.loads(args)
             except Exception:
                 args = {}
+        try:
+            callstore.append_live({"call": message.get("call") or {}, "role": "tool", "transcript": f"{fn}({json.dumps(args)})"})
+        except Exception:
+            log.exception("append_live failed")
         if fn == "get_next_events":
             payload = {"calendar_ok": ctx.calendar_ok, "source": ctx.calendar_source, "events": events}
             results.append({"toolCallId": call.get("id"), "name": fn, "result": json.dumps(payload)})
@@ -393,6 +397,11 @@ async def vapi_webhook(request: Request, service: Service = Depends(svc), _: Non
     body = await request.json()
     message = body.get("message", body)
     mtype = message.get("type")
+    if mtype == "transcript" and message.get("transcriptType") == "final":
+        try:
+            callstore.append_live(message)
+        except Exception:
+            log.exception("append_live failed")
     ended = mtype == "end-of-call-report" or (
         mtype == "status-update" and message.get("status") == "ended"
     )
