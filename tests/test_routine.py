@@ -264,3 +264,28 @@ def test_existing_phone_policy_uses_the_explicit_weekly_routine():
     assert decision(NOW).reason_code == "NOT_ROUTINE_DAY"
     assert decision(NOW, force=True).action != Action.CALL
     assert decision(NOW - timedelta(days=1)).action == Action.CALL
+
+
+def test_zero_global_call_cap_still_blocks_explicit_routine():
+    from conftest import OWNER, make_ctx, make_state, make_stats
+    from hiyo.models import Profile, Action
+    from hiyo.policy import decide
+    profile = Profile(routine=RoutineSchedule(enabled=True), daily_call_cap=0)
+    result = decide(make_stats(now=NOW), make_ctx(now=NOW), profile, make_state(now=NOW), NOW,
+                    owner_phone=OWNER, trigger="routine_checkin")
+    assert result.action == Action.IGNORE
+    assert result.reason_code == "DAILY_CAP"
+
+
+@pytest.mark.parametrize("personality", ["gentle", "focused", "analytical"])
+def test_existing_phone_brief_keeps_short_branch_rules_within_prompt_cap(personality):
+    from conftest import make_ctx, make_stats
+    from hiyo.brief import build_brief
+    from hiyo.models import Profile
+    profile = Profile(preferred_name="Alex", personality=personality, routine=RoutineSchedule(enabled=True))
+    brief = build_brief(make_ctx(now=NOW), NOW, profile=profile, stats=make_stats(now=NOW), trigger="routine_checkin")
+    assert len(brief["system"]) <= 2500
+    assert brief["first_message"] == "Hi Alex, it's Hiyo, your AI coach. How are you feeling today?"
+    assert "Positive:" in brief["system"] and "Negative:" in brief["system"]
+    assert "Stress Score" in brief["system"]
+    assert "one question at a time" in brief["system"]

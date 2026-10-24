@@ -103,7 +103,7 @@ The Soul prototype adds personal-baseline trend checks, opt-in SQLite memory, mu
 - Call recording + timestamped transcript + latency analysis (`scripts/call_report.py`).
 - Baymax-inspired operator dashboard (fan tribute, not affiliated).
 - Google Calendar read via secret iCal link (read-only).
-- 186 automated tests.
+- 224 automated tests, including user-scheduled morning/evening routine calls and concise feedback branches.
 
 **Implemented, not yet verified on our hardware:**
 
