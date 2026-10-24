@@ -120,6 +120,8 @@ class Profile(BaseModel):
     morning_checkin_time: str = "08:30"
     morning_checkin_window_minutes: int = 60
     allowed_contact_hours: list[int] = [7, 21]
+    nudge_cooldown_minutes: int = 15
+    nudge_escalate_minutes: int = 8
 
 
 class Decision(BaseModel):
@@ -142,6 +144,11 @@ REASON_CODES = {
     "OUTSIDE_ALLOWED_HOURS",
     "NOT_DUE",
     "SMS_UNAVAILABLE",
+    "ELEVATED_NUDGE",
+    "LOW_INTERVENTION_NUDGE",
+    "NUDGE_COOLDOWN",
+    "NUDGE_DAILY_CAP",
+    "ESCALATED_AFTER_NUDGE",
     "NO_CONSENT",
     "RECIPIENT_NOT_VERIFIED",
     "KILL_SWITCH",

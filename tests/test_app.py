@@ -194,3 +194,54 @@ def test_audit_path_env_override(monkeypatch, tmp_path):
     finally:
         monkeypatch.undo()
         importlib.reload(audit)
+
+
+
+def test_textbelt_reply_intents(client, monkeypatch):
+    monkeypatch.setenv("TEXTBELT_API_KEY", "k")
+    svc = client.app.state.service
+    import hmac as _h, hashlib as _hh, time as _t
+    def signed(text):
+        import json as _j
+        owner = svc.owner_phone
+        body = _j.dumps({"textId": "1", "fromNumber": owner, "text": text}).encode()
+        ts = str(int(_t.time()))
+        sig = _h.new(b"k", (ts + body.decode()).encode(), _hh.sha256).hexdigest()
+        return body, {"x-textbelt-timestamp": ts, "x-textbelt-signature": sig,
+                      "Content-Type": "application/json"}
+    # bad signature -> 401
+    r = client.post("/textbelt/reply", content=b'{"text":"ok"}',
+                    headers={"x-textbelt-timestamp": "1", "x-textbelt-signature": "bad"})
+    assert r.status_code == 401
+    # OK -> ack
+    body, h = signed("OK")
+    r = client.post("/textbelt/reply", content=body, headers=h)
+    assert r.status_code == 200 and svc.store.state.nudge_acked is True
+    # STOP -> kill switch on
+    body, h = signed("STOP")
+    client.post("/textbelt/reply", content=body, headers=h)
+    assert svc.store.state.kill_switch is True
+    svc.store.state.kill_switch = False
+    # unknown text -> self-report + ack
+    body, h = signed("kinda tired")
+    client.post("/textbelt/reply", content=body, headers=h)
+    assert svc.self_report["feeling"] == "kinda tired"
+
+
+def test_tunnel_allows_textbelt_reply(client, monkeypatch):
+    monkeypatch.setenv("TEXTBELT_API_KEY", "")
+    r = client.post("/textbelt/reply", json={"fromNumber": "+1", "text": "ok"},
+                    headers={"cf-connecting-ip": "1.2.3.4"})
+    assert r.status_code in (200, 401)  # reachable through tunnel (not 404)
+
+
+def test_textbelt_reply_owner_check_on_signed(client, monkeypatch):
+    monkeypatch.setenv("TEXTBELT_API_KEY", "k")
+    svc = client.app.state.service
+    import hmac as _h, hashlib as _hh, time as _t, json as _j
+    body = _j.dumps({"textId": "1", "fromNumber": "+19999999999", "text": "ok"}).encode()
+    ts = str(int(_t.time()))
+    sig = _h.new(b"k", (ts + body.decode()).encode(), _hh.sha256).hexdigest()
+    r = client.post("/textbelt/reply", content=body,
+                    headers={"x-textbelt-timestamp": ts, "x-textbelt-signature": sig})
+    assert r.status_code == 401

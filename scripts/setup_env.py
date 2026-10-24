@@ -17,6 +17,7 @@ FIELDS = [
     ("TWILIO_PHONE_NUMBER", "Twilio phone number, E.164 e.g. +15551234567", False),
     ("OWNER_PHONE_NUMBER", "Your cell, E.164 e.g. +15551234567", True),
     ("GOOGLE_CALENDAR_ICAL_URL", "Google Calendar secret iCal address (optional now)", True),
+    ("TEXTBELT_API_KEY", "Textbelt API key (textbelt.com, optional)", True),
 ]
 E164 = re.compile(r"^\+[1-9]\d{6,14}$")
 

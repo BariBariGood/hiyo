@@ -131,6 +131,13 @@ footer{max-width:1500px;margin:16px auto 4px;display:flex;justify-content:space-
   </section>
 
   <section class="card">
+    <h2>Escalation ladder</h2>
+    <div id="ladder" style="display:flex;flex-direction:column;gap:10px"></div>
+    <div class="kv" id="ladderMeta" style="margin-top:10px"></div>
+    <button id="ackBtn" style="margin-top:10px">Owner acknowledged</button>
+  </section>
+
+  <section class="card">
     <h2>Guards <span style="font-weight:600;text-transform:none">— every check must pass before I call</span></h2>
     <div class="trig-tabs" id="trigTabs"></div>
     <div class="chips" id="guards"></div>
@@ -214,6 +221,7 @@ document.getElementById("trgExtra").onclick=()=>post("/api/trigger",{trigger:"ex
 document.getElementById("killBtn").onclick=()=>post("/api/kill",{on:!last.kill_switch});
 document.getElementById("endCallBtn").onclick=()=>post("/api/call/end",{});
 document.getElementById("resetBtn").onclick=()=>post("/api/demo/reset",{});
+document.getElementById("ackBtn").onclick=()=>post("/api/nudge/ack",{});
 let last={};
 function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 
@@ -296,6 +304,22 @@ async function tick(){
     document.getElementById("killBtn").classList.toggle("warn-on",!!s.kill_switch);
     document.getElementById("log").innerHTML=(s.recent_decisions||[])
       .map(x=>`<div class="logline">${x.created_at.slice(11,19)} <b class="${x.action}">${x.action}</b> [${esc(x.trigger||"")}] ${esc(x.reason_code)}</div>`).join("");
+    const L=s.ladder||{};const rungs=[
+      ["nothing","Nothing","I will not interrupt you."],
+      ["nudge","Nudge","iMessage check-in"],
+      ["call","Call","voice check-in"],
+      ["buzz","WHOOP buzz","future — not supported by WHOOP's public API"]];
+    document.getElementById("ladder").innerHTML=rungs.map(([k,t,d])=>{
+      const act=L.rung===k,dis=k==="buzz";
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-radius:20px;border:2px solid ${act?"var(--teal)":"var(--line)"};background:${act?"var(--teal-soft)":"var(--card)"};opacity:${dis?.45:1}">
+        <span style="width:14px;height:14px;border-radius:50%;background:${act?"var(--teal)":"var(--line)"}"></span>
+        <div><b style="font-size:15px">${t}</b><div style="font-size:12.5px;color:var(--dim);font-weight:600">${d}</div></div>
+      </div>`}).join("");
+    document.getElementById("ladderMeta").innerHTML=
+      `channel <b>${esc(L.channel||"—")}</b> · nudges today <b>${L.nudges_today??0}</b>`+
+      (L.last_nudge_at?` · last nudge <b>${String(L.last_nudge_at).slice(11,19)}</b>`:"")+
+      (L.escalation_due_in_s!=null?` · escalation in <b style="color:var(--red)">${L.escalation_due_in_s}s</b>`:"")+
+      (L.nudge_acked?` · <b>acked ✓</b>`:"");
     document.getElementById("clock").textContent=new Date().toLocaleTimeString();
   }catch(e){/* keep polling */}
 }

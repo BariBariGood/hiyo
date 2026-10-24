@@ -7,6 +7,7 @@ P0 actions: IGNORE and CALL only. Not clinically validated.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -32,6 +33,8 @@ UNSUPPORTED_TRIGGERS = {"emergency_detected", "stress_threshold_crossed"}
 SCHEDULED_TRIGGERS = {"morning_checkin"}
 # intervention level -> max proactive calls/day (Soul policy.json)
 LEVEL_CALL_CAP = {"low": 0, "medium": 1, "high": 2}
+# intervention level -> max proactive nudges/day (Soul SMS limits)
+NUDGE_DAILY_CAP = {"low": 2, "medium": 3, "high": 5}
 
 _PLAIN = {
     "NO_CONSENT": "Owner has not opted in to calls.",
@@ -61,6 +64,11 @@ _PLAIN = {
     "NOT_DUE": "Scheduled trigger not due yet.",
     "MISSED_WINDOW": "Scheduled check-in window has passed for today; no late call.",
     "SMS_UNAVAILABLE": "SMS transport is unavailable — treated as a silent outcome.",
+    "ELEVATED_NUDGE": "Elevated while resting with no event — sent a check-in text.",
+    "LOW_INTERVENTION_NUDGE": "Low intervention level — sent a text instead of a call.",
+    "NUDGE_COOLDOWN": "Within nudge cooldown.",
+    "NUDGE_DAILY_CAP": "Daily nudge cap reached.",
+    "ESCALATED_AFTER_NUDGE": "Un-acknowledged nudge, still elevated — escalating to a call.",
     "SCHEDULED_CHECKIN": "Consented scheduled check-in.",
     "EXTRA_CHECKIN": "Operator-requested extra check-in.",
 }
@@ -108,6 +116,7 @@ def decide(
     advisor_vote: str | None = None,
     trigger: str = "pre_event_checkin",
     force_schedule: bool = False,
+    escalate_now: bool = False,
 ) -> Decision:
     """Guard ladder — sole authority on CALL. `advisor_vote` may only
     downgrade CALL -> IGNORE. Scheduled triggers may DEFER when only timing
@@ -135,7 +144,7 @@ def decide(
         return ig("CHECKIN_DISABLED")
     if trigger == "extra_checkin" and level != "high":
         return ig("INTERVENTION_LOW")
-    if LEVEL_CALL_CAP.get(level, 0) == 0:
+    if trigger != "pre_event_checkin" and LEVEL_CALL_CAP.get(level, 0) == 0:
         return ig("INTERVENTION_LOW")
 
     # 1. consent / recipient
@@ -194,7 +203,7 @@ def decide(
     today = now.astimezone(ZoneInfo(profile.timezone)).date().isoformat()
     calls_today = state.calls_today if state.calls_date == today else 0
     cap = min(profile.daily_call_cap, LEVEL_CALL_CAP.get(level, 0))
-    if calls_today >= cap:
+    if cap > 0 and calls_today >= cap:
         return ig("DAILY_CAP")
     spend_today = state.spend_minutes_today if state.calls_date == today else 0.0
     if spend_today >= profile.spend_minutes_cap:
@@ -210,11 +219,49 @@ def decide(
         # 8. sustained elevation
         if not stats.sustained_elevation:
             return ig("NO_CANDIDATE")
-        # 9. relevant opportunity
+        # 8b. escalation: aged un-acked nudge, still elevated+seated, level >= medium
+        if (
+            state.last_nudge_at is not None
+            and not state.nudge_acked
+            and state.last_nudge_candidate
+            and LEVEL_CALL_CAP.get(level, 0) > 0
+        ):
+            ln = state.last_nudge_at
+            if ln.tzinfo is None:
+                ln = ln.replace(tzinfo=timezone.utc)
+            if escalate_now or now - ln >= timedelta(minutes=profile.nudge_escalate_minutes):
+                candidate = state.last_nudge_candidate + ":call"
+                if candidate in state.dispatched_candidate_ids:
+                    return ig("DUPLICATE_CANDIDATE", candidate_id=candidate)
+                if advisor_vote == "IGNORE":
+                    return ig("ADVISOR_DECLINED", candidate_id=candidate)
+                d = _ignore("ESCALATED_AFTER_NUDGE", now, simulated, candidate)
+                return d.model_copy(update={"action": Action.CALL, "trigger": trigger})
+        # 9. relevant opportunity + level allows calls -> CALL; else NUDGE
         opp = context.opportunity_event
-        if opp is None:
-            return ig("NO_OPPORTUNITY")
-        candidate = candidate_id_for(profile.user_id, opp, now)
+        if opp is not None and LEVEL_CALL_CAP.get(level, 0) > 0:
+            candidate = candidate_id_for(profile.user_id, opp, now)
+        else:
+            nudge_reason = "LOW_INTERVENTION_NUDGE" if LEVEL_CALL_CAP.get(level, 0) == 0 else "ELEVATED_NUDGE"
+            if os.environ.get("NUDGE_CHANNEL", "dryrun").lower() == "none":
+                return ig("SMS_UNAVAILABLE")
+            ln = state.last_nudge_at
+            if ln is not None:
+                if ln.tzinfo is None:
+                    ln = ln.replace(tzinfo=timezone.utc)
+                if now - ln < timedelta(minutes=profile.nudge_cooldown_minutes):
+                    return ig("NUDGE_COOLDOWN")
+            today_nudges = state.nudges_today if state.calls_date == today else 0
+            if today_nudges >= NUDGE_DAILY_CAP.get(level, 2):
+                return ig("NUDGE_DAILY_CAP")
+            bucket = int(now.timestamp() // CANDIDATE_BUCKET_S)
+            candidate = hashlib.sha256(f"{profile.user_id}|nudge|{bucket}".encode()).hexdigest()[:24]
+            if candidate in state.dispatched_candidate_ids:
+                return ig("DUPLICATE_CANDIDATE", candidate_id=candidate)
+            if advisor_vote == "IGNORE":
+                return ig("ADVISOR_DECLINED", candidate_id=candidate)
+            d = _ignore(nudge_reason, now, simulated, candidate)
+            return d.model_copy(update={"action": Action.NUDGE, "trigger": trigger})
     else:
         la_date = now.astimezone(ZoneInfo(profile.timezone)).date().isoformat()
         if trigger == "morning_checkin":

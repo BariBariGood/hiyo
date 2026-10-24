@@ -16,6 +16,7 @@ from .calendar import CalendarProvider
 from .soul import coach as soul_coach
 from .soul.memory import LONG_TERM_KEYS, MemoryStore, overlay_profile
 from .dispatcher import Dispatcher, make_dispatcher
+from .nudge import generate_nudge_text, make_nudge_sender
 from .models import (
     Action,
     ContextSnapshot,
@@ -57,6 +58,8 @@ class Service:
         self.calendar = calendar
         self.owner_phone = owner_phone or os.environ.get("OWNER_PHONE_NUMBER")
         self.dispatcher = dispatcher or make_dispatcher(self.owner_phone)
+        self.nudge_sender = make_nudge_sender(self.owner_phone)
+        self.nudge_channel = os.environ.get("NUDGE_CHANNEL", "dryrun").lower()
         self.dispatcher_mode = "vapi" if os.environ.get("DISPATCHER", "").lower() == "vapi" else "dryrun"
         self.window = window or SampleWindow(window_seconds=profile.window_seconds)
         self.simulator = simulator or Simulator()
@@ -161,6 +164,7 @@ class Service:
         now: datetime | None = None,
         trigger: str = "pre_event_checkin",
         force_schedule: bool = False,
+        escalate_now: bool = False,
     ) -> Decision:
         now = now or utcnow()
         stats = self.window.stats(
@@ -175,7 +179,7 @@ class Service:
         decision = decide(
             stats, context, self.profile, self.store.state, now,
             owner_phone=self.owner_phone, trigger=trigger,
-            force_schedule=force_schedule,
+            force_schedule=force_schedule, escalate_now=escalate_now,
         )
         self.latest_stats = stats
         self.latest_context = context
@@ -191,7 +195,63 @@ class Service:
 
         if decision.action == Action.CALL:
             await self._execute_dispatch(decision, context, now, trigger, stats)
+        elif decision.action == Action.NUDGE:
+            await self._execute_nudge(decision, context, now)
         return decision
+
+    async def _execute_nudge(self, decision: Decision, context: ContextSnapshot, now: datetime) -> None:
+        try:
+            self.store.record_nudge(decision.candidate_id or "", now)
+        except Exception:
+            log.exception("nudge persist failed; refusing send")
+            return
+        ev = context.opportunity_event or context.next_event
+        hint = None
+        if ev is not None:
+            mins = max(0, int((ev.start - now).total_seconds() // 60))
+            hint = f'"{sanitize_untrusted(ev.title, 40)}" in ~{mins} min'
+        can_escalate = self.profile.intervention_level != "low"
+        text = await generate_nudge_text(self.profile, hint, can_escalate,
+                                         reply_capable=(self.nudge_channel == "textbelt"))
+        try:
+            result = await self.nudge_sender.send(self.owner_phone or "", text)
+        except Exception as exc:
+            result = None
+            self.last_dispatch_error = str(exc)
+            audit.record("nudge_failed", {"candidate_id": decision.candidate_id, "error": str(exc)})
+            return
+        if result.ok:
+            self.last_dispatch_error = None
+            meta = getattr(self.nudge_sender, "last_meta", {})
+            audit.record("nudge_sent", {"candidate_id": decision.candidate_id,
+                                        "channel": self.nudge_channel,
+                                        "text_len": len(text),
+                                        "simulated_input": decision.simulated_input,
+                                        **meta})
+        else:
+            self.last_dispatch_error = result.error
+            audit.record("nudge_failed", {"candidate_id": decision.candidate_id, "error": result.error})
+
+    def ack_nudge(self) -> None:
+        self.store.ack_nudge()
+        audit.record("nudge_acked", {})
+
+    def ladder_status(self, now: datetime | None = None) -> dict:
+        now = now or utcnow()
+        s = self.store.state
+        rung = "nothing"
+        if s.active_call_id or (self.latest_decision and self.latest_decision.action == Action.CALL):
+            rung = "call"
+        elif s.last_nudge_at and not s.nudge_acked:
+            rung = "nudge"
+        due_in = None
+        if s.last_nudge_at and not s.nudge_acked:
+            ln = s.last_nudge_at if s.last_nudge_at.tzinfo else s.last_nudge_at.replace(tzinfo=timezone.utc)
+            due_in = max(0, int(self.profile.nudge_escalate_minutes * 60 - (now - ln).total_seconds()))
+        return {"rung": rung, "channel": self.nudge_channel,
+                "last_nudge_at": s.last_nudge_at.isoformat() if s.last_nudge_at else None,
+                "nudge_acked": s.nudge_acked, "escalation_due_in_s": due_in,
+                "nudges_today": s.nudges_today}
 
     async def _execute_dispatch(self, decision: Decision, context: ContextSnapshot,
                                 now: datetime, trigger: str = "pre_event_checkin",

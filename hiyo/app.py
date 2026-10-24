@@ -71,7 +71,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="hiyo", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 TUNNEL_HEADERS = ("cf-connecting-ip", "x-forwarded-for")
-TUNNEL_ALLOWED = {("/vapi/tool", "POST"), ("/vapi/webhook", "POST")}
+TUNNEL_ALLOWED = {("/vapi/tool", "POST"), ("/vapi/webhook", "POST"),
+                  ("/textbelt/reply", "POST")}
 
 
 @app.middleware("http")
@@ -233,6 +234,7 @@ async def status(service: Service = Depends(svc)):
         },
         "self_report": {**service.self_report, "provenance": service.self_report_provenance},
         "coach": service.coach_plan(),
+        "ladder": service.ladder_status(),
         "guards_by_trigger": {t: guard_report(service, t) for t in ("morning_checkin", "extra_checkin")},
         "decisions_by_trigger": {t: d.model_dump(mode="json") for t, d in service.latest_by_trigger.items()},
         "recent_decisions": [d.model_dump(mode="json") for d in service.recent_decisions],
@@ -303,6 +305,12 @@ async def end_call(service: Service = Depends(svc)):
     return {"active_call_id": None}
 
 
+@app.post("/api/nudge/ack", dependencies=[Depends(require_operator)])
+async def nudge_ack(service: Service = Depends(svc)):
+    service.ack_nudge()
+    return {"nudge_acked": True}
+
+
 @app.post("/api/demo/reset", dependencies=[Depends(require_operator)])
 async def demo_reset(service: Service = Depends(svc)):
     service.reset_demo()
@@ -369,6 +377,57 @@ async def self_report(body: SelfReportBody, service: Service = Depends(svc)):
         raise HTTPException(400, "feeling must be <= 200 chars")
     sr = service.set_self_report(sore=body.sore, fatigue=body.fatigue, feeling=body.feeling)
     return {"self_report": sr, "provenance": service.self_report_provenance}
+
+
+ACK_WORDS = {"ok", "fine", "good", "im ok", "i'm ok", "no", "stop"}
+CALL_WORDS = {"call", "call me", "yes", "y"}
+
+
+@app.post("/textbelt/reply")
+async def textbelt_reply(request: Request, service: Service = Depends(svc)):
+    from .nudge import verify_textbelt_signature
+    body_bytes = await request.body()
+    api_key = os.environ.get("TEXTBELT_API_KEY")
+    if api_key:
+        ts = request.headers.get("x-textbelt-timestamp", "")
+        sig = request.headers.get("x-textbelt-signature", "")
+        import time
+        if not verify_textbelt_signature(api_key, ts, sig, body_bytes, time.time()):
+            raise HTTPException(401, "bad signature")
+    body = await request.json()
+    if body.get("fromNumber") != service.owner_phone:
+        raise HTTPException(401, "not owner")
+    intent = _reply_intent(str(body.get("text", "")))
+    await _handle_reply_intent(intent, body.get("text", ""), service)
+    return {"ok": True, "intent": intent}
+
+
+def _reply_intent(text: str) -> str:
+    t = text.strip().lower()
+    if t in CALL_WORDS:
+        return "call_request"
+    if t == "stop":
+        return "stop"
+    if t in ACK_WORDS:
+        return "ack"
+    return "self_report"
+
+
+async def _handle_reply_intent(intent: str, text: str, service: Service) -> None:
+    if intent == "stop":
+        service.ack_nudge()
+        service.set_kill(True)
+        audit.record("owner_stop", {})
+    elif intent == "ack":
+        service.ack_nudge()
+    elif intent == "call_request":
+        # immediate evaluation; skips only the 8-min wait, every guard applies
+        await service.evaluate_once(trigger="pre_event_checkin",
+                                    force_schedule=True, escalate_now=True)
+    else:
+        service.set_self_report(feeling=text[:200] if text else None)
+        service.ack_nudge()
+    audit.record("nudge_reply", {"intent": intent})
 
 
 @app.post("/vapi/tool")

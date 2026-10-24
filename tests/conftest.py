@@ -91,6 +91,10 @@ def make_state(
     calls_today=0,
     spend=0.0,
     dispatched=None,
+    last_nudge_at=None,
+    last_nudge_candidate=None,
+    nudge_acked=False,
+    nudges_today=0,
     now=NOW,
 ) -> PersistedState:
     return PersistedState(
@@ -101,6 +105,10 @@ def make_state(
         calls_today=calls_today,
         spend_minutes_today=spend,
         dispatched_candidate_ids=list(dispatched or []),
+        last_nudge_at=last_nudge_at,
+        last_nudge_candidate=last_nudge_candidate,
+        nudge_acked=nudge_acked,
+        nudges_today=nudges_today,
     )
 
 

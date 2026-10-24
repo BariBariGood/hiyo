@@ -152,9 +152,10 @@ def test_kill_switch(profile):
 
 
 def test_no_opportunity(profile):
+    # spec: elevated + no event escalates ladder to a NUDGE, not a bare ignore
     ctx = make_ctx(opportunity=False)
     d = run(profile, ctx=ctx)
-    assert d.reason_code == "NO_OPPORTUNITY"
+    assert d.action == Action.NUDGE and d.reason_code == "ELEVATED_NUDGE"
 
 
 def test_guard_order_kill_before_stale(profile):
