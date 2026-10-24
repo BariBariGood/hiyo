@@ -16,6 +16,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Protocol
 
+import httpx
+
 from .dispatcher import DispatchRefused, validate_target
 
 log = logging.getLogger("hiyo.nudge")
@@ -165,9 +167,14 @@ def fallback_text(personality: str, sms_style: str, event_hint: str | None,
         "balanced": "Everything okay? " + ask,
         "natural": "How are you feeling? " + ask,
     }.get(sms_style, "How are you feeling? " + ask)
-    text = f"{opener} {body} {tail}".strip()
     room = MAX_LEN - len(SIGN_OFF) - 1
-    return (text[:room].rstrip() + " " + SIGN_OFF) if len(text) > room else text + " " + SIGN_OFF
+    # drop optional parts (never the ask) until it fits, instead of truncating mid-sentence
+    event_line = f"{event_hint} is coming up." if event_hint else ""
+    for parts in ([opener, body, tail], [opener, event_line, tail], [event_line, tail], [opener, tail], [tail]):
+        text = " ".join(p for p in parts if p).strip()
+        if len(text) <= room:
+            return f"{text} {SIGN_OFF}"
+    return f"{ask} {SIGN_OFF}".strip()
 
 
 def validate_nudge_text(text: str, can_escalate: bool) -> bool:
