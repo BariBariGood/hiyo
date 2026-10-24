@@ -5,6 +5,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime, timezone
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -106,6 +107,7 @@ class Profile(BaseModel):
     quiet_hours_end: str = "09:00"
     timezone: str = LA_TZ
     # Soul additions
+    personality: Literal["gentle", "focused", "analytical"] = "gentle"
     preferred_name: str = "Ivan"
     intervention_level: str = "high"  # low|medium|high — config sets "medium"
     voice_style: str = "natural"      # direct|balanced|natural

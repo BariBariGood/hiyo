@@ -280,6 +280,8 @@ class Service:
         return self.self_report
 
     def set_profile_pref(self, key: str, value) -> dict:
+        if key == "personality" and value not in ("gentle", "focused", "analytical"):
+            raise ValueError("personality must be gentle|focused|analytical")
         accepted = self.memory.update({key: value})
         self.profile = overlay_profile(self.profile, self.memory.data)
         audit.record("profile_update", {"key": key})
@@ -288,6 +290,8 @@ class Service:
     def remember_preference(self, key: str, value: str) -> tuple[bool, str]:
         """remember_preference tool handler — whitelist enforced."""
         clean = sanitize_untrusted(value, 100) if isinstance(value, str) else str(value)
+        if key == "personality" and clean not in ("gentle", "focused", "analytical"):
+            return False, "personality must be gentle|focused|analytical"
         if key not in LONG_TERM_KEYS:
             return False, f"can't store '{key}': not a permitted preference"
         self.memory.update({key: clean})

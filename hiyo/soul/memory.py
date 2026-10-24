@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 LONG_TERM_KEYS = {
+    "personality",
     "preferred_name", "fitness_goal", "usual_workout_days", "coaching_preferences",
     "voice_style", "sms_style", "intervention_level", "contact_windows",
     "sleep_target_hours", "morning_prep_minutes", "preferred_language",
@@ -59,4 +60,6 @@ class MemoryStore:
 def overlay_profile(profile, memory: dict[str, Any]):
     """config/profile.json values overlaid by whitelisted memory.json prefs."""
     patch = {k: v for k, v in memory.items() if k in LONG_TERM_KEYS and k in type(profile).model_fields}
+    if patch.get("personality") not in (None, "gentle", "focused", "analytical"):
+        patch.pop("personality", None)
     return profile.model_copy(update=patch) if patch else profile

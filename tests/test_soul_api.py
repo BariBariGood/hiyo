@@ -53,3 +53,40 @@ def test_feedback_export_and_delete(client):
 
 def test_contract_validation_on_api(client):
     assert client.post("/api/soul/evaluate", json={"profile": {"personality": "mean"}}).status_code == 422
+
+
+def test_personality_selection_reaches_the_existing_phone_brief(client):
+    from hiyo.brief import build_brief
+    from hiyo.models import ContextSnapshot
+    now = datetime.now(timezone.utc)
+    response = client.post("/api/profile", json={"personality": "analytical", "voice_style": "direct", "sms_style": "natural"})
+    assert response.status_code == 200
+    service = client.app.state.service
+    assert service.profile.personality == "analytical"
+    brief = build_brief(ContextSnapshot(now=now), now, profile=service.profile, trigger="morning_checkin")
+    assert "PERSONALITY: analytical" in brief["system"]
+    assert "usual morning" in brief["first_message"]
+    assert service.memory.data["personality"] == "analytical"
+    assert service.dispatcher.calls == []
+
+
+def test_invalid_personality_not_persisted_via_profile_or_tool(client):
+    assert client.post("/api/profile", json={"personality": "bully"}).status_code == 400
+    assert client.app.state.service.remember_preference("personality", "bully")[0] is False
+
+
+def test_soul_route_inherits_selected_personality_and_sms_style(client):
+    assert client.post("/api/profile", json={"personality": "analytical", "sms_style": "natural"}).status_code == 200
+    response = client.post("/api/soul/evaluate", json={"profile": {"sms_opt_in": True}, "event": "pre_workout"})
+    assert response.status_code == 200
+    communication = response.json()["communication"]
+    assert communication["personality"] == "analytical"
+    assert communication["style"] == "natural"
+
+
+def test_existing_call_opening_does_not_treat_positive_feedback_as_distress(client):
+    from hiyo.soul.persona import opening_message
+    profile = client.app.state.service.profile
+    text = opening_message("morning_checkin", profile, self_report={"feeling": "feeling great"})
+    assert "sounds tough" not in text.lower()
+    assert "sounds like a lot" not in text.lower()

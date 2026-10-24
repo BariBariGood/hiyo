@@ -98,7 +98,7 @@ Low / Medium / High 的每日上限目前分别为：0/1/2 次电话，2/3/5 条
 ```bash
 # 仓库根目录；使用已安装项目依赖的 Python 环境
 python -m scripts.demo_soul
-python -m pytest tests/test_soul.py tests/test_soul_api.py -q
+python -m pytest tests/test_soul_care.py tests/test_soul_api.py -q
 ```
 
 演示全程使用标明的模拟数据，在临时数据库里演示三种人格，以及“多日变化 → 联系预留 → 重启 → 回访 → 关闭事项”。不调用模型服务、不发短信、不拨电话。
@@ -113,6 +113,8 @@ python -m pytest tests/test_soul.py tests/test_soul_api.py -q
 | `GET /api/soul/memory` | 查看当前 owner 的个人记忆 |
 | `DELETE /api/soul/memory` | 清除个人记忆，保留最小联系频次凭据 |
 
+现有 `POST /api/profile` 也支持 `personality`、`voice_style`、`sms_style`。人格值为 `gentle` / `focused` / `analytical`，会保存到现有偏好记忆并进入真实电话模块使用的提示词。Soul 评估接口未明确指定这些设置时，会继承当前选择；联系和长期保存的授权仍需要单独提供。
+
 接口沿用现有 operator token 和 tunnel 限制，只服务配置的 owner。时间由服务端提供。`HIYO_SOUL_DB` 可指定本地数据库路径，`HIYO_SOUL_POLICY` 可指定策略文件；默认策略在 `config/soul_policy.json`，会实际加载和验证。
 
 `SoulEngine.evaluate(context, now)` 返回提案，不直接发送。电话模块可使用 `communication.brief`，结构与现有 `build_assistant()` 兼容。执行端拿到最新的可信偏好和日历后调用 `reserve()`，预留成功才可进入它自己的收件人校验、全局 kill switch、活跃通话和花费限制。Soul 的预留不代替这些限制。
@@ -121,7 +123,7 @@ python -m pytest tests/test_soul.py tests/test_soul_api.py -q
 
 ## 当前实现的边界
 
-- 这次补齐的是可测试的教练行为、趋势判断和记忆闭环。真实 WHOOP 云端数据接入、日历授权、无人值守调度，以及实时通话中的反馈工具接线仍属于执行端对接工作；原有 BLE 演示循环没有被替换。
+- 这次补齐的是可测试的教练行为、趋势判断和记忆闭环，并将人格设置接入了现有电话提示词。队友实现的 BLE 演示、晨间调度和偏好记忆保持兼容；WHOOP 云端数据接入、持久化回访与趋势提案接入执行循环，以及实时通话中的结构化反馈回写仍需对接。
 - 提示词可以送入现有 Vapi 通话模型，但没有新增独立模型 API，也没有把固定模板伪装成真实模型对话。产品示例展示希望达到的对话，不是通话录音。
 - 默认用至少 7 个历史日建立中位数基线，检查最近连续 3 日；分数下降、睡眠减少、静息心率上升的参数都只是可配置的产品启发式，没有临床验证。历史不足或中间缺天时，不宣称确认了持续异常。
 - 数据默认不长期保存。开启记忆后保存本地记录，默认保留 90 天；数据库限制为本机用户读写，目前没有加密，尚不适合部署为多用户健康数据服务。

@@ -222,6 +222,7 @@ async def status(service: Service = Depends(svc)):
         "kill_switch": s.kill_switch,
         "dispatcher": service.dispatcher_mode,
         "profile": {
+            "personality": service.profile.personality,
             "preferred_name": service.profile.preferred_name,
             "intervention_level": service.profile.intervention_level,
             "voice_style": service.profile.voice_style,
@@ -324,11 +325,21 @@ async def manual_trigger(body: TriggerBody, service: Service = Depends(svc)):
 class ProfileBody(BaseModel):
     intervention_level: str | None = None
     voice_style: str | None = None
+    sms_style: str | None = None
+    personality: str | None = None
 
 
 @app.post("/api/profile", dependencies=[Depends(require_operator)])
 async def set_profile(body: ProfileBody, service: Service = Depends(svc)):
     updates = {}
+    if body.personality is not None:
+        if body.personality not in ("gentle", "focused", "analytical"):
+            raise HTTPException(400, "personality must be gentle|focused|analytical")
+        updates["personality"] = body.personality
+    if body.sms_style is not None:
+        if body.sms_style not in ("direct", "balanced", "natural"):
+            raise HTTPException(400, "sms_style must be direct|balanced|natural")
+        updates["sms_style"] = body.sms_style
     if body.intervention_level is not None:
         if body.intervention_level not in ("low", "medium", "high"):
             raise HTTPException(400, "intervention_level must be low|medium|high")
@@ -341,6 +352,8 @@ async def set_profile(body: ProfileBody, service: Service = Depends(svc)):
     for k, v in updates.items():
         accepted.update(service.set_profile_pref(k, v))
     return {"accepted": accepted, "profile": {"intervention_level": service.profile.intervention_level,
+                                              "personality": service.profile.personality,
+                                              "sms_style": service.profile.sms_style,
                                               "voice_style": service.profile.voice_style}}
 
 

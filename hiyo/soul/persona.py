@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from ..brief_utils import sanitize_untrusted
 from ..models import ContextSnapshot, LA_TZ, Profile
+from .personas import PERSONAS
 
 STYLES = {
     "direct": {"description": "Brief and direct, one key insight and at most one question.",
@@ -82,6 +83,7 @@ def build_system_prompt(trigger: str, context: ContextSnapshot, profile: Profile
         "",
         f"PURPOSE: {TRIGGER_PURPOSE.get(trigger, TRIGGER_PURPOSE['pre_event_checkin'])}",
         f"STYLE: {style} — {STYLES[style]['description']} Keep it to {STYLES[style]['verbosity']}.",
+        f"PERSONALITY: {profile.personality}. {PERSONAS[profile.personality]['behavior']}",
         f"HEALTH FACTS: {health}",
     ]
 
@@ -141,15 +143,19 @@ def opening_message(trigger: str, profile: Profile, context: ContextSnapshot | N
 
     if feeling:
         if style == "direct":
-            base = f"Hey {name}, it's your AI coach. Sounds tough — want to talk it through or make a quick plan?"
+            base = f"Hey {name}, it's your AI coach. Want to talk about how you're feeling, or make a quick plan?"
         else:
-            base = (f"Hey {name}, it's your AI coach. I hear you — that sounds like a lot. "
-                    "Want to talk it through, or would a small next step help?")
+            base = (f"Hey {name}, it's your AI coach. You mentioned how you were feeling. "
+                    "Want to talk it through or work out a next step?")
+    elif trigger == "morning_checkin" and profile.personality == "focused":
+        base = f"Morning {name}, it's your AI coach. Got a moment to choose one priority for today's recovery and training?"
+    elif trigger == "morning_checkin" and profile.personality == "analytical":
+        base = f"Morning {name}, it's your AI coach. How does your energy feel compared with your usual morning?"
     elif trigger == "morning_checkin":
         if style == "direct":
             base = f"Morning {name}, it's your AI coach. How's your energy?"
         elif style == "natural":
-            base = f"Morning {name}! It's your AI coach — how'd you sleep, and how are you feeling about today?"
+            base = f"Morning {name}! It's your AI coach — how did you sleep?"
         else:
             base = f"Morning {name}, it's your AI coach. Quick check-in — how are you feeling today?"
     elif trigger == "extra_checkin":
