@@ -44,3 +44,4 @@ All tests are deterministic: `now` is injected, no network, no BLE.
 - Call data (recordings, transcripts) lives in runtime/calls/ and must never be committed.
 - Analyze a call: `uv run python scripts/call_report.py latest --fetch`
 - Onboarding web app: see web/README.md
+- Manual setup (accounts, keys, tunnel, WHOOP, onboarding): docs/SETUP.md — keep it current when adding a manual step

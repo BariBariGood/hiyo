@@ -92,6 +92,8 @@ Real-time Stress Score and strap vibration control are outside the initial WHOOP
 
 ## Project Status
 
+**Setup:** every manual step (accounts, keys, tunnel, calendar, WHOOP pairing, onboarding) is in [docs/SETUP.md](docs/SETUP.md).
+
 The Soul prototype adds personal-baseline trend checks, opt-in SQLite memory, muscle-specific coaching proposals, follow-up tracking, and three coaching personalities. Its local APIs return proposals and model-ready briefs; they do not dispatch calls.
 
 **Working and verified live today:**
