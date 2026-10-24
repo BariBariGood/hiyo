@@ -91,14 +91,47 @@ Real-time Stress Score and strap vibration control are outside the initial WHOOP
 
 ## Project Status
 
-**Early prototype.** This repository includes a Python/FastAPI decision engine, simulator, operator dashboard, WHOOP BLE heart-rate adapter, calendar integration, Vapi call adapter, and tests. The Soul prototype adds personal-baseline trend checks, opt-in SQLite memory, muscle-specific coaching proposals, follow-up tracking, and three coaching personalities. Its local APIs return proposals and model-ready briefs; they do not dispatch calls. The full product experience still needs live data and conversation integration. See [BUILD_LOG.md](BUILD_LOG.md) for recorded verification and limitations.
+The Soul prototype adds personal-baseline trend checks, opt-in SQLite memory, muscle-specific coaching proposals, follow-up tracking, and three coaching personalities. Its local APIs return proposals and model-ready briefs; they do not dispatch calls.
+
+**Working and verified live today:**
+
+- Real outbound AI phone calls via Vapi on an imported Twilio number — ElevenLabs voice (owner's own account), OpenAI gpt-4.1 (owner's key), Deepgram nova-3 transcription (via Vapi), and Minji's three coach personalities (gentle / focused / analytical) plus selectable voice styles.
+- Mid-call tools: `get_next_events` (reads the calendar) and `remember_preference` (whitelisted keys only).
+- Escalation ladder: Nothing → Nudge (real SMS via Textbelt; replies OK / CALL / STOP are signature-verified and owner-checked) → Call (one guarded escalation).
+- Deterministic safety guard ladder: consent, owner-only allowlist, kill switch, quiet/allowed hours, calendar busy or unavailable fails closed, cooldown, daily caps, idempotency, no auto-redial, no emergency dialing.
+- Call recording + timestamped transcript + latency analysis (`scripts/call_report.py`).
+- Baymax-inspired operator dashboard (fan tribute, not affiliated).
+- Google Calendar read via secret iCal link (read-only).
+- 186 automated tests.
+
+**Implemented, not yet verified on our hardware:**
+
+- WHOOP 5.0 live heart rate over the standard BLE Heart Rate Service (0x180D / 0x2A37).
+  <!-- update after live strap test -->
+
+**Simulated / fixtures (always labeled in the UI and logs):**
+
+- Heart-rate simulator, demo calendar fixture, operator-entered self-report and activity. Activity is never inferred from heart rate.
+
+**Not built / out of scope:**
+
+- WHOOP strap vibration (no public API).
+- WHOOP cloud API data (Recovery / Sleep / Strain; planned).
+- Twilio SMS (US A2P 10DLC registration takes 10–15 days; trial accounts can't register — Textbelt covers SMS instead).
+- Multi-day follow-ups are not yet wired into the live loop (Minji's Soul engine has them, tested offline — see [docs/SOUL.md](docs/SOUL.md)).
+- Multi-user / production hardening.
+
+Stack: Python/FastAPI, Vapi, Twilio (voice), Textbelt (SMS), ElevenLabs, OpenAI, Deepgram, cloudflared tunnel.
+
+See [docs/DEMO.md](docs/DEMO.md) for the 3-minute judge run-of-show, [BUILD_LOG.md](BUILD_LOG.md) for recorded verification, and [docs/SOUL.md](docs/SOUL.md) for the Soul spec.
 
 Next steps:
 
 - [x] Implement and test initial Soul behavior, personal memory, trends, follow-ups, and three coaching personalities.
-- [ ] Connect WHOOP and optional Google Calendar access.
-- [ ] Build and evaluate morning check-ins, training adjustments, and calls that ask, comfort, advise, and follow up when the user feels unwell or patterns look concerning.
-- [ ] Add voice and SMS delivery, with LiveKit, Pipecat, and Twilio under consideration.
+- [ ] Verify WHOOP live BLE heart rate on hardware (adapter built and unit-tested).
+- [x] Google Calendar read-only integration (secret iCal URL; fixture fallback).
+- [x] Voice delivery (Vapi + Twilio) and SMS nudges (Textbelt) — chosen stack, working live.
+- [ ] Wire Soul multi-day follow-ups into the live loop.
 - [ ] Expand to additional wearable integrations after validating the WHOOP experience.
 
 ## Inspiration
