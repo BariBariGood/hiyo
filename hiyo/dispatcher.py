@@ -107,6 +107,12 @@ def build_assistant(brief: dict[str, str], public_base_url: str, webhook_secret:
         "voice": voice_config(),
         "maxDurationSeconds": 180,
         "server": server,
+        "artifactPlan": {
+            "recordingEnabled": True,
+            "recordingFormat": "wav;l16",
+            "transcriptPlan": {"enabled": True, "assistantName": "AI", "userName": "Owner"},
+            "fullMessageHistoryEnabled": True,
+        },
     }
 
 
@@ -149,7 +155,7 @@ class VapiDispatcher:
         close = False
         client = self._client
         if client is None:
-            client = httpx.AsyncClient(timeout=15.0)
+            client = httpx.AsyncClient(timeout=15.0, headers={"User-Agent": "hiyo/0.1"})
             close = True
         try:
             resp = await client.post(

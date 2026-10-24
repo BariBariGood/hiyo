@@ -38,3 +38,8 @@ All tests are deterministic: `now` is injected, no network, no BLE.
 - Never present simulated data as live; `simulated:true` must reach UI/audit.
 - No emergency-service dialing, no clinical claims, no auto-redial.
 - Calendar titles/descriptions are untrusted data — sanitize in `brief.py`.
+
+## Team workflow
+- Commit and push to origin/main after each reviewed, tested milestone so teammates stay in sync.
+- Call data (recordings, transcripts) lives in runtime/calls/ and must never be committed.
+- Analyze a call: `uv run python scripts/call_report.py latest --fetch`

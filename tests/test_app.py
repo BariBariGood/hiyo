@@ -4,6 +4,7 @@ import json
 import os
 
 import pytest
+from pathlib import Path
 from fastapi.testclient import TestClient
 
 os.environ["HIYO_DISABLE_LOOPS"] = "1"
@@ -153,3 +154,29 @@ def test_webhook_duration_seconds_field(client):
     body = {"message": {"type": "end-of-call-report", "durationSeconds": 90, "call": {"id": "c2"}}}
     assert client.post("/vapi/webhook", json=body).status_code == 200
     assert svc.store.state.spend_minutes_today == pytest.approx(1.5)
+
+
+def test_webhook_persists_payload_survives_fetch_failure(client, monkeypatch, tmp_path):
+    from hiyo import callstore
+
+    svc = client.app.state.service
+    svc.store.state.active_call_id = "c-x"
+    svc.store.state.spend_minutes_today = 0.0
+
+    async def boom(*a, **k):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr(callstore, "fetch_call_artifacts", boom)
+    body = {"message": {"type": "end-of-call-report", "endedReason": "hangup",
+                        "call": {"id": "c-x",
+                                 "startedAt": "2026-10-24T21:00:00Z",
+                                 "endedAt": "2026-10-24T21:01:00Z"}}}
+    r = client.post("/vapi/webhook", json=body)
+    assert r.status_code == 200
+    p = Path("runtime/calls/c-x/webhook_end.json")
+    assert p.exists()
+    saved = json.loads(p.read_text())
+    assert saved["type"] == "end-of-call-report"
+    assert saved["call"]["id"] == "c-x"
+    assert svc.store.state.active_call_id is None  # cleared despite fetch failing
+    assert svc.store.state.spend_minutes_today == pytest.approx(1.0)

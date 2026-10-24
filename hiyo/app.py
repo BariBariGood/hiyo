@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -13,7 +15,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from . import audit
+from . import audit, callstore
 from .brief import sanitize_title
 from .calendar import CalendarProvider
 from .models import Profile
@@ -21,6 +23,8 @@ from .service import Service
 from .state import StateStore
 
 load_dotenv()
+
+log = logging.getLogger("hiyo.app")
 
 ROOT = Path(__file__).resolve().parent.parent
 DASHBOARD = ROOT / "dashboard" / "index.html"
@@ -318,6 +322,16 @@ async def vapi_webhook(request: Request, service: Service = Depends(svc), _: Non
             "call_ended_webhook",
             {"call_id": call.get("id"), "reason": message.get("endedReason")},
         )
+        call_id = call.get("id")
+        if call_id:
+            try:
+                callstore.save_webhook_end(call_id, message)
+            except Exception:
+                log.exception("save_webhook_end failed")
+            # best-effort background fetch of call record + recording
+            asyncio.get_running_loop().create_task(
+                callstore.persist_after_call(call_id, os.environ.get("VAPI_API_KEY"))
+            )
     return {"ok": True}
 
 
