@@ -65,6 +65,18 @@ class DryRunDispatcher:
         return DispatchResult(ok=True, call_id=call_id)
 
 
+def voice_config() -> dict:
+    """ElevenLabs "Jessica" on Flash v2.5 by default; override via env."""
+    voice = {
+        "provider": os.environ.get("VAPI_VOICE_PROVIDER", "11labs"),
+        "voiceId": os.environ.get("VAPI_VOICE_ID", "cgSgspJ2msm6clMCkdW9"),
+    }
+    model = os.environ.get("VAPI_VOICE_MODEL", "eleven_flash_v2_5")
+    if model:
+        voice["model"] = model
+    return voice
+
+
 def build_assistant(brief: dict[str, str], public_base_url: str, webhook_secret: str | None) -> dict:
     """Transient assistant config for POST /call (docs: calls/create)."""
     server_headers = {"x-vapi-secret": webhook_secret} if webhook_secret else None
@@ -92,7 +104,7 @@ def build_assistant(brief: dict[str, str], public_base_url: str, webhook_secret:
                 }
             ],
         },
-        "voice": {"provider": "vapi", "voiceId": "Elliot"},
+        "voice": voice_config(),
         "maxDurationSeconds": 180,
         "server": server,
     }
