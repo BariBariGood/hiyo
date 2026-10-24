@@ -245,3 +245,49 @@ def test_textbelt_reply_owner_check_on_signed(client, monkeypatch):
     r = client.post("/textbelt/reply", content=body,
                     headers={"x-textbelt-timestamp": ts, "x-textbelt-signature": sig})
     assert r.status_code == 401
+
+
+def _onboard_body(**kw):
+    b = {"prefs": {"preferred_name": "Ivan", "personality": "gentle",
+                   "intervention_level": "low", "quiet_hours_start": "21:00",
+                   "usual_workout_days": [1, 3, 5]},
+         "phone": "+15555550123",
+         "ical_url": "https://calendar.google.com/calendar/ical/x/basic.ics",
+         "consents": {"agree_calls": True, "ai_not_medical": True, "can_stop": True}}
+    b.update(kw)
+    return b
+
+
+def test_onboarding_flow(client, monkeypatch, tmp_path):
+    import hiyo.app as app_mod
+    monkeypatch.chdir(tmp_path)  # pending file lands in tmp runtime/
+    # 503 without env
+    monkeypatch.delenv("HIYO_ONBOARDING_TOKEN", raising=False)
+    r = client.post("/api/onboarding", json=_onboard_body())
+    assert r.status_code == 503
+    monkeypatch.setenv("HIYO_ONBOARDING_TOKEN", "tok")
+    # 401 bad token
+    r = client.post("/api/onboarding", json=_onboard_body(),
+                    headers={"X-Onboarding-Token": "wrong"})
+    assert r.status_code == 401
+    # valid applies prefs, stages phone/ical
+    svc = client.app.state.service
+    r = client.post("/api/onboarding", json=_onboard_body(),
+                    headers={"X-Onboarding-Token": "tok"})
+    assert r.status_code == 200 and r.json()["pending_phone"] is True
+    assert svc.profile.preferred_name == "Ivan"
+    assert svc.profile.intervention_level == "low"
+    pend = json.loads((tmp_path / "runtime" / "onboarding_pending.json").read_text())
+    assert pend["phone"] == "+15555550123"
+    # phone NOT applied to the allowlist / dispatcher
+    assert svc.owner_phone != "+15555550123"
+    # invalid enum -> 422
+    bad = _onboard_body(); bad["prefs"]["personality"] = "chaotic"
+    r = client.post("/api/onboarding", json=bad, headers={"X-Onboarding-Token": "tok"})
+    assert r.status_code == 422
+    # localhost-only: onboarding is NOT reachable through the tunnel, even with a valid token
+    r = client.post("/api/onboarding", json=_onboard_body(),
+                    headers={"cf-connecting-ip": "1.2.3.4", "X-Onboarding-Token": "tok"})
+    assert r.status_code == 404
+    r = client.get("/api/status", headers={"cf-connecting-ip": "1.2.3.4"})
+    assert r.status_code == 404

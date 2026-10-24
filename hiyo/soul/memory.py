@@ -20,6 +20,7 @@ LONG_TERM_KEYS = {
     "sleep_target_hours", "morning_prep_minutes", "preferred_language",
     "workout_constraints", "planned_workout", "morning_checkin_enabled",
     "morning_checkin_time",
+    "quiet_hours_start", "quiet_hours_end", "allowed_contact_hours",
 }
 
 _lock = threading.Lock()

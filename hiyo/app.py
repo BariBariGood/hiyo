@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -237,6 +238,7 @@ async def status(service: Service = Depends(svc)):
         "self_report": {**service.self_report, "provenance": service.self_report_provenance},
         "coach": service.coach_plan(),
         "ladder": service.ladder_status(),
+        "onboarding": _onboarding_status(),
         "guards_by_trigger": {t: guard_report(service, t) for t in ("morning_checkin", "extra_checkin")},
         "decisions_by_trigger": {t: d.model_dump(mode="json") for t, d in service.latest_by_trigger.items()},
         "recent_decisions": [d.model_dump(mode="json") for d in service.recent_decisions],
@@ -305,6 +307,92 @@ async def set_calendar_mode(body: ModeBody, service: Service = Depends(svc)):
 async def end_call(service: Service = Depends(svc)):
     service.end_call()
     return {"active_call_id": None}
+
+
+E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
+ONBOARD_PREF_KEYS = {
+    "preferred_name": lambda v: isinstance(v, str) and 0 < len(v) <= 40,
+    "fitness_goal": lambda v: isinstance(v, str) and len(v) <= 200,
+    "personality": lambda v: v in ("gentle", "focused", "analytical"),
+    "voice_style": lambda v: v in ("direct", "balanced", "natural"),
+    "sms_style": lambda v: v in ("direct", "balanced", "natural"),
+    "intervention_level": lambda v: v in ("low", "medium", "high"),
+    "quiet_hours_start": lambda v: isinstance(v, str) and re.fullmatch(r"\d{2}:\d{2}", v or ""),
+    "quiet_hours_end": lambda v: isinstance(v, str) and re.fullmatch(r"\d{2}:\d{2}", v or ""),
+    "morning_checkin_time": lambda v: isinstance(v, str) and re.fullmatch(r"\d{2}:\d{2}", v or ""),
+    "morning_checkin_enabled": lambda v: isinstance(v, bool),
+    "usual_workout_days": lambda v: isinstance(v, list) and all(d in range(7) for d in v),
+    "allowed_contact_hours": lambda v: isinstance(v, list) and len(v) == 2 and all(isinstance(h, int) and 0 <= h <= 23 for h in v),
+}
+
+
+LONG_TERM_KEYS_CHECK = set()  # opted_in is not a memory pref; handled below
+
+
+def _onboarding_status() -> dict:
+    p = Path("runtime/onboarding_pending.json")
+    if not p.exists():
+        return {"pending": False}
+    try:
+        d = json.loads(p.read_text())
+    except Exception:
+        d = {}
+    return {"pending": True, "received_at": d.get("received_at"),
+            "has_phone": bool(d.get("phone")), "has_calendar": bool(d.get("ical_url"))}
+
+
+@app.post("/api/onboarding")
+async def onboarding(request: Request, service: Service = Depends(svc)):
+    token = os.environ.get("HIYO_ONBOARDING_TOKEN")
+    if not token:
+        raise HTTPException(503, "onboarding token not configured")
+    if request.headers.get("x-onboarding-token") != token:
+        raise HTTPException(401, "bad token")
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(400, "invalid JSON")
+    if not isinstance(body, dict):
+        raise HTTPException(400, "invalid payload")
+    prefs = body.get("prefs") or {}
+    phone = str(body.get("phone") or "")
+    ical = str(body.get("ical_url") or "")
+    consents = body.get("consents") or {}
+    if phone and not E164_RE.match(phone):
+        raise HTTPException(422, "phone must be E.164")
+    if ical and not re.match(r"^https://calendar\.google\.com/calendar/ical/.+/basic\.ics$", ical):
+        raise HTTPException(422, "ical url must be a Google secret iCal address")
+    if not all(consents.get(k) is True for k in
+               ("agree_calls", "ai_not_medical", "can_stop")):
+        raise HTTPException(422, "required consents missing")
+    bad = [k for k, v in prefs.items() if k not in ONBOARD_PREF_KEYS or not ONBOARD_PREF_KEYS[k](v)]
+    if bad:
+        raise HTTPException(422, f"invalid prefs: {sorted(bad)}")
+    applied = []
+    for k, v in prefs.items():
+        service.set_profile_pref(k, v)
+        applied.append(k)
+    # phone + iCal are never applied over the network — staged for local review
+    pending = {
+        "received_at": utcnow().isoformat(),
+        "phone": phone or None,
+        "ical_url": ical or None,
+        "consents": {k: bool(v) for k, v in consents.items()},
+    }
+    if not consents.get("agree_calls"):
+        service.profile.opted_in = False
+    path = Path("runtime/onboarding_pending.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(pending, indent=1))
+    tmp.chmod(0o600)
+    tmp.replace(path)
+    audit.record("onboarding_received", {"fields": sorted(body.keys()),
+                                        "prefs": sorted(prefs.keys()),
+                                        "has_phone": bool(phone),
+                                        "has_calendar": bool(ical)})
+    return {"ok": True, "applied": applied, "pending_phone": bool(phone),
+            "pending_calendar": bool(ical)}
 
 
 @app.post("/api/nudge/ack", dependencies=[Depends(require_operator)])

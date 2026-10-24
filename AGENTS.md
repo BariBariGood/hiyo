@@ -43,3 +43,4 @@ All tests are deterministic: `now` is injected, no network, no BLE.
 - Commit and push to origin/main after each reviewed, tested milestone so teammates stay in sync.
 - Call data (recordings, transcripts) lives in runtime/calls/ and must never be committed.
 - Analyze a call: `uv run python scripts/call_report.py latest --fetch`
+- Onboarding web app: see web/README.md
