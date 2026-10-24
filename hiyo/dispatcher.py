@@ -65,6 +65,39 @@ class DryRunDispatcher:
         return DispatchResult(ok=True, call_id=call_id)
 
 
+def build_assistant(brief: dict[str, str], public_base_url: str, webhook_secret: str | None) -> dict:
+    """Transient assistant config for POST /call (docs: calls/create)."""
+    server_headers = {"x-vapi-secret": webhook_secret} if webhook_secret else None
+    server = {"url": f"{public_base_url}/vapi/webhook"}
+    if server_headers:
+        server["headers"] = server_headers
+    tool_server = {"url": f"{public_base_url}/vapi/tool"}
+    if server_headers:
+        tool_server["headers"] = server_headers
+    return {
+        "firstMessage": brief["first_message"],
+        "model": {
+            "provider": "openai",
+            "model": "gpt-4o",
+            "messages": [{"role": "system", "content": brief["system"]}],
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "get_next_events",
+                        "description": "Read the owner's next few calendar events (title and start time only).",
+                        "parameters": {"type": "object", "properties": {}, "required": []},
+                    },
+                    "server": tool_server,
+                }
+            ],
+        },
+        "voice": {"provider": "vapi", "voiceId": "Elliot"},
+        "maxDurationSeconds": 180,
+        "server": server,
+    }
+
+
 class VapiDispatcher:
     """UNVERIFIED LIVE — see BUILD_LOG.md.
 
@@ -95,39 +128,10 @@ class VapiDispatcher:
                 ok=False, error="vapi not configured (VAPI_API_KEY/VAPI_PHONE_NUMBER_ID/PUBLIC_BASE_URL)"
             )
 
-        server_headers = {"x-vapi-secret": self.webhook_secret} if self.webhook_secret else None
-        server = {"url": f"{self.public_base_url}/vapi/webhook"}
-        if server_headers:
-            server["headers"] = server_headers
-        tool_server = {"url": f"{self.public_base_url}/vapi/tool"}
-        if server_headers:
-            tool_server["headers"] = server_headers
-
         body = {
             "phoneNumberId": self.phone_number_id,
             "customer": {"number": number},
-            "assistant": {
-                "firstMessage": brief["first_message"],
-                "model": {
-                    "provider": "openai",
-                    "model": "gpt-4o",
-                    "messages": [{"role": "system", "content": brief["system"]}],
-                    "tools": [
-                        {
-                            "type": "function",
-                            "function": {
-                                "name": "get_next_events",
-                                "description": "Read the owner's next few calendar events (title and start time only).",
-                                "parameters": {"type": "object", "properties": {}, "required": []},
-                            },
-                            "server": tool_server,
-                        }
-                    ],
-                },
-                "voice": {"provider": "vapi", "voiceId": "Elliot"},
-                "maxDurationSeconds": 180,
-                "server": server,
-            },
+            "assistant": build_assistant(brief, self.public_base_url, self.webhook_secret),
         }
 
         close = False
