@@ -40,7 +40,7 @@
 
 - **VapiDispatcher** — payload built from docs (calls/create + server-url
   events, fetched 2026-10-24) but no live call has been placed yet.
-- **WhoopBleStreamer** — code path exists; no hardware attached yet.
+- **WhoopBleStreamer** — VERIFIED LIVE 2026-10-24 16:58 PDT: `WHOOP MGC0103306`, Heart Rate Broadcast on, phone Bluetooth off, strap held near the MacBook Pro. 40/40 one-second `/api/status` polls returned `source=whoop_ble`, `simulated=false`, age < 1 s, 73–106 bpm. First scan in a crowded room picked up a different attendee's strap (`WHOOP 5B00490994`, rssi −91) — check the serial name before setting `WHOOP_ADDR`.
 - **Live iCal mode** — fixture mode exercised; real secret-URL fetch untested.
 
 ## Doc-driven decisions / deviations from Vapi docs

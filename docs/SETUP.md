@@ -130,15 +130,21 @@ settings.
    The first run triggers a macOS Bluetooth permission prompt for your
    terminal/IDE — click **Allow** (or System Settings → Privacy & Security →
    Bluetooth).
-5. Copy the UUID from the line marked `<== CANDIDATE` (e.g. `WHOOP 4C…`) →
-   `WHOOP_ADDR`. On macOS this is a CoreBluetooth UUID, specific to this Mac.
+5. Copy the UUID from the line marked `<== CANDIDATE` → `WHOOP_ADDR`. On
+   macOS this is a CoreBluetooth UUID, specific to this Mac. **Match the name
+   (`WHOOP <serial>`) to your strap's serial in the WHOOP app** — in a crowded
+   room you will see other people's straps. Yours should have a strong signal
+   (rssi around −50 to −65 when next to the laptop); −90 is probably not yours.
 6. Restart the server, then switch the sensor to BLE (dashboard, or):
    ```bash
    curl -X POST 127.0.0.1:8787/api/sensor/mode -H 'content-type: application/json' -d '{"mode":"ble"}'
    ```
    The dashboard should show source `whoop_ble` with fresh sample ages.
 
-Not yet verified on our strap — update this section after the first live run.
+Verified on our strap (`WHOOP MGC0103306`) on 2026-10-24: fresh samples every
+second. If it shows "sensor unavailable", the strap is out of range or
+connected to the phone — turn phone Bluetooth off (Settings → Bluetooth) and
+keep the strap close; the server keeps retrying on its own.
 
 ## 7. Onboarding web app (`web/`)
 

@@ -104,13 +104,9 @@ The Soul prototype adds personal-baseline trend checks, opt-in SQLite memory, mu
 - Deterministic safety guard ladder: consent, owner-only allowlist, kill switch, quiet/allowed hours, calendar busy or unavailable fails closed, cooldown, daily caps, idempotency, no auto-redial, no emergency dialing.
 - Call recording + timestamped transcript + latency analysis (`scripts/call_report.py`).
 - Baymax-inspired operator dashboard (fan tribute, not affiliated).
+- **Live WHOOP heart rate** over the standard BLE Heart Rate Service (0x180D / 0x2A37) — verified 2026-10-24 on our WHOOP (MG, `WHOOP MGC0103306`) on a MacBook Pro: 40/40 one-second polls were fresh `whoop_ble` samples (age < 1 s, 73–106 bpm). Standard heart-rate profile only; WHOOP's proprietary service is never used.
 - Google Calendar read via secret iCal link (read-only).
 - 224 automated tests, including user-scheduled morning/evening routine calls and concise feedback branches.
-
-**Implemented, not yet verified on our hardware:**
-
-- WHOOP 5.0 live heart rate over the standard BLE Heart Rate Service (0x180D / 0x2A37).
-  <!-- update after live strap test -->
 
 **Simulated / fixtures (always labeled in the UI and logs):**
 
@@ -131,7 +127,7 @@ See [docs/DEMO.md](docs/DEMO.md) for the 3-minute judge run-of-show, [BUILD_LOG.
 Next steps:
 
 - [x] Implement and test initial Soul behavior, personal memory, trends, follow-ups, and three coaching personalities.
-- [ ] Verify WHOOP live BLE heart rate on hardware (adapter built and unit-tested).
+- [x] Verify WHOOP live BLE heart rate on hardware.
 - [x] Google Calendar read-only integration (secret iCal URL; fixture fallback).
 - [x] Voice delivery (Vapi + Twilio) and SMS nudges (Textbelt) — chosen stack, working live.
 - [ ] Wire Soul multi-day follow-ups into the live loop.
