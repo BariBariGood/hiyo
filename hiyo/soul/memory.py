@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 LONG_TERM_KEYS = {
+    "routine",
     "personality",
     "preferred_name", "fitness_goal", "usual_workout_days", "coaching_preferences",
     "voice_style", "sms_style", "intervention_level", "contact_windows",
@@ -62,4 +63,10 @@ def overlay_profile(profile, memory: dict[str, Any]):
     patch = {k: v for k, v in memory.items() if k in LONG_TERM_KEYS and k in type(profile).model_fields}
     if patch.get("personality") not in (None, "gentle", "focused", "analytical"):
         patch.pop("personality", None)
+    if "routine" in patch:
+        from ..routine_schedule import RoutineSchedule
+        try:
+            patch["routine"] = RoutineSchedule.model_validate(patch["routine"])
+        except (ValueError, TypeError):
+            patch["routine"] = RoutineSchedule(enabled=False)
     return profile.model_copy(update=patch) if patch else profile

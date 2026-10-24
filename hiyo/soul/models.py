@@ -7,6 +7,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from ..routine_schedule import RoutineSchedule
 
 Style = Literal["direct", "balanced", "natural"]
 Personality = Literal["gentle", "focused", "analytical"]
@@ -50,6 +51,7 @@ class CoachProfile(Contract):
     paused: bool = False
     morning_checkin_enabled: bool = False
     morning_time: str = "09:00"
+    routine: RoutineSchedule | None = None
     contact_start: str = "07:00"
     contact_end: str = "21:00"
     timezone: str = "America/Los_Angeles"
@@ -94,6 +96,36 @@ class Workout(Contract):
     duration_minutes: int = Field(default=30, ge=1, le=600)
 
 
+class StressReading(Contract):
+    source: str = Field(min_length=1, max_length=80)
+    observed_at: AwareDatetime
+    simulated: bool
+    score: float
+    scale_min: float = 0
+    scale_max: float = Field(gt=0)
+    period: Literal["snapshot", "daily_average"]
+    provider_status: Literal["unknown", "typical", "elevated"] = "unknown"
+
+    @model_validator(mode="after")
+    def valid_scale(self):
+        if not self.scale_min < self.scale_max or not self.scale_min <= self.score <= self.scale_max:
+            raise ValueError("stress score must lie within its documented source scale")
+        return self
+
+
+class RoutineAnswers(Contract):
+    feeling: Literal["unknown", "positive", "negative"] = "unknown"
+    trained_yesterday: bool | None = None
+    missed_reason: Literal["unknown", "busy", "motivation", "unwell", "fatigue", "other"] = "unknown"
+    wants_to_train: bool | None = None
+    soreness: Literal["unknown", "none", "mild", "very_sore"] = "unknown"
+
+
+class AgendaItem(Contract):
+    title: str = Field(min_length=1, max_length=100)
+    start: AwareDatetime
+
+
 class Feedback(Contract):
     id: str = Field(min_length=1, max_length=100)
     at: AwareDatetime
@@ -133,7 +165,7 @@ class Availability(Contract):
 
 class CoachingContext(Contract):
     profile: CoachProfile
-    event: Literal["auto", "morning_checkin", "pre_workout", "bedtime_reminder", "extra_checkin"] = "auto"
+    event: Literal["auto", "routine_checkin", "morning_checkin", "pre_workout", "bedtime_reminder", "extra_checkin"] = "auto"
     health: Observation | None = None
     history: list[Observation] = Field(default_factory=list, max_length=180)
     feedback: Feedback | None = None
@@ -141,6 +173,9 @@ class CoachingContext(Contract):
     planned_workout: Workout | None = None
     next_calendar_event_start: AwareDatetime | None = None
     calendar: Availability = Field(default_factory=Availability)
+    stress: StressReading | None = None
+    routine_answers: RoutineAnswers = Field(default_factory=RoutineAnswers)
+    agenda: list[AgendaItem] = Field(default_factory=list, max_length=20)
 
 
 def require_now(now: datetime) -> None:

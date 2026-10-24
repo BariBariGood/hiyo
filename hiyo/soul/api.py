@@ -41,7 +41,7 @@ def install_routes(app, *, require_operator, service_dependency, clock):
         check_owner(body.profile, service)
         # Reuse the selected coach across both routes unless explicitly overridden.
         # Contact and memory consent must still be supplied by the trusted caller.
-        inherited = {key: getattr(service.profile, key) for key in ("personality", "voice_style", "sms_style")
+        inherited = {key: getattr(service.profile, key) for key in ("personality", "voice_style", "sms_style", "routine")
                      if key not in body.profile.model_fields_set}
         body = body.model_copy(update={"profile": body.profile.model_copy(update=inherited)})
         try:

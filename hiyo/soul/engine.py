@@ -15,6 +15,8 @@ from .models import CoachProfile, CoachingContext, Feedback, Observation, SoulPo
 from .scheduling import propose
 from .store import SoulStore
 from .trends import assess, fresh
+from .routine import routine_conversation
+from ..routine_schedule import routine_status
 
 
 def concern_for(feedback: Feedback) -> str:
@@ -123,7 +125,9 @@ class SoulEngine:
         due = sorted((f for f in follows if f["status"] == "open" and datetime.fromisoformat(f["next_due"]) <= now), key=lambda f: f["next_due"])
         followup = due[0] if due else None
         event = None
-        if current and (current.unwell or current.injury_concern or (ctx.feedback and current.feeling in ("low", "overwhelmed"))):
+        if ctx.event == "routine_checkin" or (ctx.event == "auto" and routine_status(profile.routine, now, profile.timezone) == "DUE"):
+            event = "routine_checkin"
+        elif current and (current.unwell or current.injury_concern or (ctx.feedback and current.feeling in ("low", "overwhelmed"))):
             event = "care_checkin"
         elif followup:
             event = "followup"
@@ -131,7 +135,7 @@ class SoulEngine:
             event = "care_checkin"
         elif ctx.event != "auto":
             event = ctx.event
-        elif profile.morning_checkin_enabled:
+        elif profile.morning_checkin_enabled and profile.routine is None:
             local = now.astimezone(ZoneInfo(profile.timezone))
             scheduled = local.replace(hour=int(profile.morning_time[:2]), minute=int(profile.morning_time[3:]), second=0, microsecond=0)
             if timedelta(0) <= local - scheduled < timedelta(hours=1):
@@ -148,8 +152,15 @@ class SoulEngine:
                   "memory_enabled": profile.memory_opt_in, "due_followup": followup,
                   "memory_used": {"feedback_count": len(feedbacks), "last_workout": ctx.last_workout.model_dump(mode="json") if ctx.last_workout else None}}
         if decision["action"] in ("propose_call", "propose_sms"):
-            result["communication"] = conversation(ctx, health, current, previous, followup, trend,
-                                                  coaching_plan, decision["channel"], event)
+            if event == "routine_checkin":
+                result["communication"] = routine_conversation(ctx, health, current, trend, coaching_plan, decision["channel"], now)
+                result["plan"]["routine_adjustment"] = result["communication"]["routine"]["adjustment"]
+                stress = ctx.stress
+                if result["communication"]["routine"]["data_summary"]["stress_available"]:
+                    result["simulated_input"] = result["simulated_input"] or stress.simulated
+            else:
+                result["communication"] = conversation(ctx, health, current, previous, followup, trend,
+                                                      coaching_plan, decision["channel"], event)
         return result
 
     def reserve(self, context: CoachingContext, proposal: dict, now: datetime) -> dict:

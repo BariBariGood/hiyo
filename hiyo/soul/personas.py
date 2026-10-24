@@ -35,8 +35,8 @@ PERSONAS = {
 
 STYLES = {
     "direct": "Use one or two short sentences per turn. One question, one actionable point. Keep the selected personality.",
-    "balanced": "Use two to four short sentences when needed: brief acknowledgement, a relevant reason, and one question.",
-    "natural": "Use relaxed short turns, respond to what was just said, and leave space to talk. No extra length by default.",
+    "balanced": "Use one or two short sentences: a brief acknowledgement, a relevant reason, and at most one question.",
+    "natural": "Use relaxed turns of one or two short sentences. Respond naturally without extending the call.",
 }
 
 CORE = """You are Hiyo, an explicitly identified AI health coach.

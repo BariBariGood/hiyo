@@ -21,6 +21,7 @@ from .calendar import CalendarProvider
 from .models import Profile
 from .service import Service
 from .state import StateStore
+from .routine_schedule import RoutineSchedule
 
 load_dotenv()
 
@@ -223,6 +224,7 @@ async def status(service: Service = Depends(svc)):
         "kill_switch": s.kill_switch,
         "dispatcher": service.dispatcher_mode,
         "profile": {
+            "routine": service.profile.routine.model_dump(mode="json") if service.profile.routine else None,
             "personality": service.profile.personality,
             "preferred_name": service.profile.preferred_name,
             "intervention_level": service.profile.intervention_level,
@@ -335,11 +337,14 @@ class ProfileBody(BaseModel):
     voice_style: str | None = None
     sms_style: str | None = None
     personality: str | None = None
+    routine: RoutineSchedule | None = None
 
 
 @app.post("/api/profile", dependencies=[Depends(require_operator)])
 async def set_profile(body: ProfileBody, service: Service = Depends(svc)):
     updates = {}
+    if "routine" in body.model_fields_set:
+        updates["routine"] = (body.routine or RoutineSchedule(enabled=False)).model_dump(mode="json")
     if body.personality is not None:
         if body.personality not in ("gentle", "focused", "analytical"):
             raise HTTPException(400, "personality must be gentle|focused|analytical")
@@ -360,6 +365,7 @@ async def set_profile(body: ProfileBody, service: Service = Depends(svc)):
     for k, v in updates.items():
         accepted.update(service.set_profile_pref(k, v))
     return {"accepted": accepted, "profile": {"intervention_level": service.profile.intervention_level,
+                                              "routine": service.profile.routine.model_dump(mode="json") if service.profile.routine else None,
                                               "personality": service.profile.personality,
                                               "sms_style": service.profile.sms_style,
                                               "voice_style": service.profile.voice_style}}

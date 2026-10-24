@@ -28,7 +28,7 @@ def assess(readings: list[Observation], now: datetime, profile: CoachProfile, po
     days = [last_day - timedelta(days=i) for i in range(policy.persistent_days)]
     start = min(days)
     prior = [x for day, x in daily.items() if start - timedelta(days=policy.baseline_days) <= day < start]
-    baselines, signals = {}, []
+    baselines, signals, latest_deviations = {}, [], []
     thresholds = {"recovery_score": (-1, policy.recovery_drop_points),
                   "sleep_hours": (-1, policy.sleep_drop_hours),
                   "resting_hr": (1, policy.resting_hr_rise)}
@@ -38,12 +38,17 @@ def assess(readings: list[Observation], now: datetime, profile: CoachProfile, po
             continue
         base = median(samples)
         baselines[metric] = base
+        value = getattr(latest, metric)
+        if value is not None and direction * (value - base) >= delta:
+            latest_deviations.append({"metric": metric, "baseline": base, "latest": value,
+                                      "difference": value - base, "sustained": False})
         recent = [getattr(daily[day], metric) if day in daily else None for day in days]
         if all(value is not None and direction * (value - base) >= delta for value in recent):
             signals.append({"metric": metric, "baseline": base, "latest": getattr(latest, metric),
                             "consecutive_days": len(days)})
     return {"status": "persistent_change" if signals else "no_persistent_change" if baselines else "insufficient_history",
             "persistent": bool(signals), "signals": signals, "baseline": baselines,
+            "latest_deviations": latest_deviations,
             "source": latest.source, "simulated": latest.simulated,
             "latest_observed_at": latest.observed_at.isoformat(),
             "heuristic": "product heuristic, not clinically validated"}

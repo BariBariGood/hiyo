@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .models import CoachingContext, SoulPolicy
+from ..routine_schedule import routine_status
 
 LIMITS = {"low": {"call": 0, "sms": 2}, "medium": {"call": 1, "sms": 3}, "high": {"call": 2, "sms": 5}}
 
@@ -45,6 +46,10 @@ def propose(context: CoachingContext, event: str | None, now: datetime, contacts
         return result("skip", "user_paused")
     if not event:
         return result("skip", "no_coaching_event")
+    if event == "routine_checkin":
+        status = routine_status(user.routine, now, user.timezone)
+        if status != "DUE":
+            return result("defer" if status == "NOT_DUE" else "skip", status)
     if not user.call_opt_in and not user.sms_opt_in:
         return result("skip", "no_channel_consent")
     if event == "morning_checkin" and not user.morning_checkin_enabled:
@@ -58,13 +63,17 @@ def propose(context: CoachingContext, event: str | None, now: datetime, contacts
     times = [datetime.fromisoformat(c["at"]) for c in contacts]
     if any(timedelta(0) <= now - at < timedelta(minutes=policy.cooldown_minutes) for at in times):
         return result("defer", "contact_cooldown")
-    limits = LIMITS[user.intervention_level]
+    limits = dict(LIMITS[user.intervention_level])
+    if event == "routine_checkin":
+        limits["call"] = max(1, limits["call"])
     used = {channel: sum(c["channel"] == channel and datetime.fromisoformat(c["at"]).astimezone(tz).date() == today for c in contacts) for channel in ("call", "sms")}
-    prefers_call = event in ("morning_checkin", "care_checkin", "followup", "extra_checkin")
+    prefers_call = event in ("routine_checkin", "morning_checkin", "care_checkin", "followup", "extra_checkin")
     channels = (["call", "sms"] if prefers_call else ["sms"])
     permitted = [ch for ch in channels if getattr(user, ch + "_opt_in") and used[ch] < limits[ch]]
     for channel in permitted:
         when = available(context, now, channel)
+        if when and event == "routine_checkin" and routine_status(user.routine, when, user.timezone) != "DUE":
+            continue
         if when:
             return result("propose_" + channel, "eligible", channel=channel, scheduled_at=when.isoformat(),
                           proposal_id=proposal_id, must_revalidate_at_dispatch=True)

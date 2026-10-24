@@ -2,7 +2,7 @@
 
 > **An AI health coach that cares enough to call — and remembers to follow up.**
 
-Hiyo is a proactive AI coach built to take your wellbeing personally. It brings together wearable health data, your training goals, your feedback, and optional Google Calendar context. With your permission, it calls for a brief morning conversation: how yesterday's workout felt, how you slept, and what your body is ready for today.
+Hiyo is a proactive AI coach built to take your wellbeing personally. It brings together wearable health data, your training goals, your feedback, and optional Google Calendar context. You choose daily or weekly routine calls, in the morning or evening: how your workout felt, how you slept, and what your body is ready for next.
 
 When you say you're feeling unwell, or your data shows a concerning change, Hiyo can call to check on you. It asks what has been happening, listens, offers reassurance, and helps you choose a practical next step. If the pattern persists, it follows up. The aim is to make care feel continuous: someone remembers what you said and asks how you're doing afterward.
 
@@ -22,7 +22,7 @@ That's what we're building with Hiyo. A short phone call, a thoughtful question,
 
 ## What Hiyo Does
 
-- **Calls for a morning check-in.** At your chosen cadence, including daily, asks about your recovery, sleep, and how you're feeling. You can choose a brief, direct conversation when time is tight.
+- **Calls for a short routine check-in.** You choose daily or a few times a week, morning or evening. Hiyo asks how you're feeling, gives a precise available-data summary, adjusts the plan when needed, and closes without a long interview. See [the routine call flow](docs/ROUTINE_CALLS.md).
 - **Follows up on training.** Combines yesterday's workout with recovery data and your feedback to suggest today's activity, intensity, or rest.
 - **Fits advice around your life.** Uses your goals and optional Google Calendar context to suggest realistic training and sleep adjustments.
 - **Checks on you when something seems off.** When you report feeling unwell, or relevant signals look unusual for you, Hiyo can call to ask what has changed: sleep, training, stress, or something else. It listens, offers comfort, and suggests a manageable next step. Persistent changes over several days prompt follow-up; one unusual reading is considered in context rather than treated as a diagnosis.
@@ -75,7 +75,8 @@ Personality is independent of contact frequency and voice/SMS style. All three r
 
 ## Your Coach, Your Preferences
 
-- **Intervention frequency: Low / Medium / High.** Choose occasional high-value check-ins, a balanced cadence, or more frequent coaching.
+- **Routine calls:** Daily or selected days each week, at your chosen morning or evening time.
+- **Additional intervention frequency: Low / Medium / High.** Choose how proactively Hiyo checks in beyond your scheduled routine.
 - **Voice style: Direct / Balanced / Natural.**
 - **SMS style: Direct / Balanced / Natural.**
 

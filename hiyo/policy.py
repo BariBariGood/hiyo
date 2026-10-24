@@ -22,21 +22,23 @@ from .models import (
     WindowStats,
 )
 from .state import PersistedState
+from .routine_schedule import routine_status
 
 E164_RE = re.compile(r"^\+[1-9]\d{6,14}$")
 DECISION_TTL = timedelta(minutes=2)
 CANDIDATE_BUCKET_S = 600  # 10-minute candidate bucket
 OPPORTUNITY_HORIZON = timedelta(minutes=60)
 
-TRIGGERS = {"pre_event_checkin", "morning_checkin", "extra_checkin"}
+TRIGGERS = {"pre_event_checkin", "morning_checkin", "routine_checkin", "extra_checkin"}
 UNSUPPORTED_TRIGGERS = {"emergency_detected", "stress_threshold_crossed"}
-SCHEDULED_TRIGGERS = {"morning_checkin"}
+SCHEDULED_TRIGGERS = {"morning_checkin", "routine_checkin"}
 # intervention level -> max proactive calls/day (Soul policy.json)
 LEVEL_CALL_CAP = {"low": 0, "medium": 1, "high": 2}
 # intervention level -> max proactive nudges/day (Soul SMS limits)
 NUDGE_DAILY_CAP = {"low": 2, "medium": 3, "high": 5}
 
 _PLAIN = {
+    "NOT_ROUTINE_DAY": "Today is not one of the user's chosen routine call days.",
     "NO_CONSENT": "Owner has not opted in to calls.",
     "RECIPIENT_NOT_VERIFIED": "Owner phone number is missing, invalid, or not allowlisted.",
     "KILL_SWITCH": "Kill switch is on — hiyo is disabled.",
@@ -139,12 +141,14 @@ def decide(
         return ig("UNSUPPORTED_TRIGGER")
 
     level = profile.intervention_level
+    if level not in LEVEL_CALL_CAP:
+        return ig("INTERVENTION_LOW")
     # trigger-specific eligibility
     if trigger == "morning_checkin" and not profile.morning_checkin_enabled:
         return ig("CHECKIN_DISABLED")
     if trigger == "extra_checkin" and level != "high":
         return ig("INTERVENTION_LOW")
-    if trigger != "pre_event_checkin" and LEVEL_CALL_CAP.get(level, 0) == 0:
+    if trigger not in ("pre_event_checkin", "routine_checkin") and LEVEL_CALL_CAP.get(level, 0) == 0:
         return ig("INTERVENTION_LOW")
 
     # 1. consent / recipient
@@ -158,7 +162,11 @@ def decide(
         return ig("KILL_SWITCH")
 
     # 2b. schedule gate for morning_checkin (fires at/after configured LA time)
-    if scheduled and not force_schedule:
+    if trigger == "routine_checkin":
+        status = routine_status(profile.routine, now, profile.timezone)
+        if status != "DUE":
+            return df(status) if status == "NOT_DUE" else ig(status)
+    if trigger == "morning_checkin" and not force_schedule:
         local = now.astimezone(ZoneInfo(profile.timezone)).time()
         hh, mm = map(int, profile.morning_checkin_time.split(":"))
         from datetime import time as dtime
@@ -202,8 +210,12 @@ def decide(
             return ig("COOLDOWN")
     today = now.astimezone(ZoneInfo(profile.timezone)).date().isoformat()
     calls_today = state.calls_today if state.calls_date == today else 0
-    cap = min(profile.daily_call_cap, LEVEL_CALL_CAP.get(level, 0))
-    if cap > 0 and calls_today >= cap:
+    level_cap = max(1, LEVEL_CALL_CAP.get(level, 0)) if trigger == "routine_checkin" else LEVEL_CALL_CAP.get(level, 0)
+    cap = min(profile.daily_call_cap, level_cap)
+    # Low's signal-driven branch can still nudge, but a zero user call cap
+    # must never authorize routine calls or escalation to a call.
+    nudge_only = trigger == "pre_event_checkin" and level_cap == 0
+    if not nudge_only and calls_today >= cap:
         return ig("DAILY_CAP")
     spend_today = state.spend_minutes_today if state.calls_date == today else 0.0
     if spend_today >= profile.spend_minutes_cap:
@@ -264,8 +276,8 @@ def decide(
             return d.model_copy(update={"action": Action.NUDGE, "trigger": trigger})
     else:
         la_date = now.astimezone(ZoneInfo(profile.timezone)).date().isoformat()
-        if trigger == "morning_checkin":
-            candidate = hashlib.sha256(f"{profile.user_id}|morning_checkin|{la_date}".encode()).hexdigest()[:24]
+        if trigger in ("morning_checkin", "routine_checkin"):
+            candidate = hashlib.sha256(f"{profile.user_id}|{trigger}|{la_date}".encode()).hexdigest()[:24]
         else:
             bucket = int(now.timestamp() // CANDIDATE_BUCKET_S)
             candidate = hashlib.sha256(f"{profile.user_id}|extra_checkin|{bucket}".encode()).hexdigest()[:24]
@@ -279,7 +291,7 @@ def decide(
         return ig("ADVISOR_DECLINED", candidate_id=candidate)
 
     reason = "RESTING_SIGNAL_NEAR_RELEVANT_EVENT" if trigger == "pre_event_checkin" else (
-        "SCHEDULED_CHECKIN" if trigger == "morning_checkin" else "EXTRA_CHECKIN"
+        "SCHEDULED_CHECKIN" if scheduled else "EXTRA_CHECKIN"
     )
     d = _ignore(reason, now, simulated, candidate)
     return d.model_copy(update={"action": Action.CALL, "trigger": trigger})

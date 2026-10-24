@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, Field
+from .routine_schedule import RoutineSchedule
 
 LA_TZ = "America/Los_Angeles"
 
@@ -108,6 +109,7 @@ class Profile(BaseModel):
     timezone: str = LA_TZ
     # Soul additions
     personality: Literal["gentle", "focused", "analytical"] = "gentle"
+    routine: RoutineSchedule | None = None
     preferred_name: str = "Ivan"
     intervention_level: str = "high"  # low|medium|high — config sets "medium"
     voice_style: str = "natural"      # direct|balanced|natural
@@ -138,6 +140,7 @@ class Decision(BaseModel):
 
 
 REASON_CODES = {
+    "NOT_ROUTINE_DAY",
     "UNSUPPORTED_TRIGGER",
     "INTERVENTION_LOW",
     "CHECKIN_DISABLED",

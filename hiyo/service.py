@@ -154,7 +154,7 @@ class Service:
         while True:
             try:
                 await self.evaluate_once()
-                await self.evaluate_once(trigger="morning_checkin")
+                await self.evaluate_once(trigger="routine_checkin" if self.profile.routine is not None else "morning_checkin")
             except Exception:
                 log.exception("decision tick failed")
             await asyncio.sleep(DECISION_TICK_S)
@@ -340,6 +340,9 @@ class Service:
         return self.self_report
 
     def set_profile_pref(self, key: str, value) -> dict:
+        if key == "routine":
+            from .routine_schedule import RoutineSchedule
+            value = RoutineSchedule.model_validate(value).model_dump(mode="json")
         if key == "personality" and value not in ("gentle", "focused", "analytical"):
             raise ValueError("personality must be gentle|focused|analytical")
         accepted = self.memory.update({key: value})
@@ -350,6 +353,8 @@ class Service:
     def remember_preference(self, key: str, value: str) -> tuple[bool, str]:
         """remember_preference tool handler — whitelist enforced."""
         clean = sanitize_untrusted(value, 100) if isinstance(value, str) else str(value)
+        if key == "routine":
+            return False, "routine scheduling requires the explicit structured profile setting"
         if key == "personality" and clean not in ("gentle", "focused", "analytical"):
             return False, "personality must be gentle|focused|analytical"
         if key not in LONG_TERM_KEYS:

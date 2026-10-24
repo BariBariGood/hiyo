@@ -90,3 +90,16 @@ def test_existing_call_opening_does_not_treat_positive_feedback_as_distress(clie
     text = opening_message("morning_checkin", profile, self_report={"feeling": "feeling great"})
     assert "sounds tough" not in text.lower()
     assert "sounds like a lot" not in text.lower()
+
+
+def test_routine_configuration_is_persisted_as_typed_schedule(client):
+    response = client.post("/api/profile", json={"routine": {"enabled": True, "frequency": "weekly", "calls_per_week": 3,
+                                                                  "time_of_day": "evening", "local_time": "20:00"}})
+    assert response.status_code == 200
+    schedule = client.app.state.service.profile.routine
+    assert schedule.days() == [0, 2, 4]
+    assert schedule.clock() == "20:00"
+    assert client.app.state.service.memory.data["routine"]["enabled"]
+    assert client.post("/api/profile", json={"routine": None}).status_code == 200
+    assert client.app.state.service.profile.routine.enabled is False
+    assert client.app.state.service.dispatcher.calls == []
