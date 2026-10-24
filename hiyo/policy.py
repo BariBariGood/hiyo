@@ -27,6 +27,12 @@ DECISION_TTL = timedelta(minutes=2)
 CANDIDATE_BUCKET_S = 600  # 10-minute candidate bucket
 OPPORTUNITY_HORIZON = timedelta(minutes=60)
 
+TRIGGERS = {"pre_event_checkin", "morning_checkin", "extra_checkin"}
+UNSUPPORTED_TRIGGERS = {"emergency_detected", "stress_threshold_crossed"}
+SCHEDULED_TRIGGERS = {"morning_checkin"}
+# intervention level -> max proactive calls/day (Soul policy.json)
+LEVEL_CALL_CAP = {"low": 0, "medium": 1, "high": 2}
+
 _PLAIN = {
     "NO_CONSENT": "Owner has not opted in to calls.",
     "RECIPIENT_NOT_VERIFIED": "Owner phone number is missing, invalid, or not allowlisted.",
@@ -48,6 +54,15 @@ _PLAIN = {
     "DUPLICATE_CANDIDATE": "This candidate was already dispatched.",
     "RESTING_SIGNAL_NEAR_RELEVANT_EVENT": "Sustained elevated readings while resting near an upcoming event — eligible for a check-in call.",
     "ADVISOR_DECLINED": "Advisor vetoed the call.",
+    "UNSUPPORTED_TRIGGER": "That trigger is not supported.",
+    "INTERVENTION_LOW": "Intervention level does not allow this proactive call.",
+    "CHECKIN_DISABLED": "Morning check-in is disabled in the profile.",
+    "OUTSIDE_ALLOWED_HOURS": "Outside allowed contact hours.",
+    "NOT_DUE": "Scheduled trigger not due yet.",
+    "MISSED_WINDOW": "Scheduled check-in window has passed for today; no late call.",
+    "SMS_UNAVAILABLE": "SMS transport is unavailable — treated as a silent outcome.",
+    "SCHEDULED_CHECKIN": "Consented scheduled check-in.",
+    "EXTRA_CHECKIN": "Operator-requested extra check-in.",
 }
 
 
@@ -91,12 +106,37 @@ def decide(
     now: datetime,
     owner_phone: str | None = None,
     advisor_vote: str | None = None,
+    trigger: str = "pre_event_checkin",
+    force_schedule: bool = False,
 ) -> Decision:
-    """Guard ladder. `advisor_vote` may only downgrade CALL -> IGNORE."""
+    """Guard ladder — sole authority on CALL. `advisor_vote` may only
+    downgrade CALL -> IGNORE. Scheduled triggers may DEFER when only timing
+    blocks them."""
     simulated = stats.simulated
+    scheduled = trigger in SCHEDULED_TRIGGERS
+
+    def mk(action: Action, reason: str, candidate_id: str | None = None) -> Decision:
+        d = _ignore(reason, now, simulated, candidate_id)
+        return d.model_copy(update={"action": action, "trigger": trigger})
 
     def ig(reason: str, candidate_id: str | None = None) -> Decision:
-        return _ignore(reason, now, simulated, candidate_id)
+        return mk(Action.IGNORE, reason, candidate_id)
+
+    def df(reason: str, candidate_id: str | None = None) -> Decision:
+        return mk(Action.DEFER if scheduled else Action.IGNORE, reason, candidate_id)
+
+    # 0. trigger validity
+    if trigger in UNSUPPORTED_TRIGGERS or trigger not in TRIGGERS:
+        return ig("UNSUPPORTED_TRIGGER")
+
+    level = profile.intervention_level
+    # trigger-specific eligibility
+    if trigger == "morning_checkin" and not profile.morning_checkin_enabled:
+        return ig("CHECKIN_DISABLED")
+    if trigger == "extra_checkin" and level != "high":
+        return ig("INTERVENTION_LOW")
+    if LEVEL_CALL_CAP.get(level, 0) == 0:
+        return ig("INTERVENTION_LOW")
 
     # 1. consent / recipient
     if not profile.opted_in:
@@ -108,15 +148,30 @@ def decide(
     if state.kill_switch:
         return ig("KILL_SWITCH")
 
-    # 3. data freshness / availability
-    if stats.sensor_unavailable:
-        return ig("SENSOR_UNAVAILABLE")
-    if stats.stale or stats.valid_count < profile.min_samples:
-        return ig("INSUFFICIENT_DATA")
+    # 2b. schedule gate for morning_checkin (fires at/after configured LA time)
+    if scheduled and not force_schedule:
+        local = now.astimezone(ZoneInfo(profile.timezone)).time()
+        hh, mm = map(int, profile.morning_checkin_time.split(":"))
+        from datetime import time as dtime
+        due = datetime.combine(now.astimezone(ZoneInfo(profile.timezone)).date(), dtime(hh, mm))
+        window_end = (due + timedelta(minutes=profile.morning_checkin_window_minutes)).time()
+        if local < dtime(hh, mm):
+            return df("NOT_DUE")
+        if local >= window_end:
+            return ig("MISSED_WINDOW")
 
-    # 4. quiet hours
+    # 3. data freshness / availability (signal-driven trigger only)
+    if trigger == "pre_event_checkin":
+        if stats.sensor_unavailable:
+            return ig("SENSOR_UNAVAILABLE")
+        if stats.stale or stats.valid_count < profile.min_samples:
+            return ig("INSUFFICIENT_DATA")
+
+    # 4. quiet hours / allowed contact hours
     if _in_quiet_hours(profile, now):
-        return ig("QUIET_HOURS")
+        return df("QUIET_HOURS") if scheduled else ig("QUIET_HOURS")
+    if not _within_allowed_hours(profile, now):
+        return df("OUTSIDE_ALLOWED_HOURS")
 
     # 5. calendar guards
     if not context.calendar_ok:
@@ -124,7 +179,7 @@ def decide(
     if context.conflicting_events:
         return ig("CONTEXT_UNCERTAIN")
     if context.busy_now:
-        return ig("CALENDAR_BUSY")
+        return df("CALENDAR_BUSY")
 
     # 6. call lifecycle guards
     if state.active_call_id:
@@ -138,43 +193,58 @@ def decide(
             return ig("COOLDOWN")
     today = now.astimezone(ZoneInfo(profile.timezone)).date().isoformat()
     calls_today = state.calls_today if state.calls_date == today else 0
-    if calls_today >= profile.daily_call_cap:
+    cap = min(profile.daily_call_cap, LEVEL_CALL_CAP.get(level, 0))
+    if calls_today >= cap:
         return ig("DAILY_CAP")
     spend_today = state.spend_minutes_today if state.calls_date == today else 0.0
     if spend_today >= profile.spend_minutes_cap:
         return ig("BUDGET_CAP")
 
-    # 7. activity (operator-set flag only, never inferred from BPM)
-    if context.activity == "moving":
-        return ig("POSSIBLE_EXERTION")
-    if context.activity != "seated":
-        return ig("ACTIVITY_UNKNOWN")
-
-    # 8. sustained elevation
-    if not stats.sustained_elevation:
-        return ig("NO_CANDIDATE")
-
-    # 9. relevant opportunity
-    opp = context.opportunity_event
-    if opp is None:
-        return ig("NO_OPPORTUNITY")
+    candidate: str
+    if trigger == "pre_event_checkin":
+        # 7. activity (operator-set flag only, never inferred from BPM)
+        if context.activity == "moving":
+            return ig("POSSIBLE_EXERTION")
+        if context.activity != "seated":
+            return ig("ACTIVITY_UNKNOWN")
+        # 8. sustained elevation
+        if not stats.sustained_elevation:
+            return ig("NO_CANDIDATE")
+        # 9. relevant opportunity
+        opp = context.opportunity_event
+        if opp is None:
+            return ig("NO_OPPORTUNITY")
+        candidate = candidate_id_for(profile.user_id, opp, now)
+    else:
+        la_date = now.astimezone(ZoneInfo(profile.timezone)).date().isoformat()
+        if trigger == "morning_checkin":
+            candidate = hashlib.sha256(f"{profile.user_id}|morning_checkin|{la_date}".encode()).hexdigest()[:24]
+        else:
+            bucket = int(now.timestamp() // CANDIDATE_BUCKET_S)
+            candidate = hashlib.sha256(f"{profile.user_id}|extra_checkin|{bucket}".encode()).hexdigest()[:24]
 
     # 10. idempotency
-    cid = candidate_id_for(profile.user_id, opp, now)
-    if cid in state.dispatched_candidate_ids:
-        return ig("DUPLICATE_CANDIDATE", candidate_id=cid)
+    if candidate in state.dispatched_candidate_ids:
+        return ig("DUPLICATE_CANDIDATE", candidate_id=candidate)
 
     # 11. CALL — advisor can only veto
     if advisor_vote == "IGNORE":
-        return ig("ADVISOR_DECLINED", candidate_id=cid)
+        return ig("ADVISOR_DECLINED", candidate_id=candidate)
 
-    return Decision(
-        action=Action.CALL,
-        reason_code="RESTING_SIGNAL_NEAR_RELEVANT_EVENT",
-        plain_english=_PLAIN["RESTING_SIGNAL_NEAR_RELEVANT_EVENT"],
-        candidate_id=cid,
-        source_mode=SourceMode.SIMULATED if simulated else SourceMode.LIVE,
-        simulated_input=simulated,
-        created_at=now,
-        expires_at=now + DECISION_TTL,
+    reason = "RESTING_SIGNAL_NEAR_RELEVANT_EVENT" if trigger == "pre_event_checkin" else (
+        "SCHEDULED_CHECKIN" if trigger == "morning_checkin" else "EXTRA_CHECKIN"
     )
+    d = _ignore(reason, now, simulated, candidate)
+    return d.model_copy(update={"action": Action.CALL, "trigger": trigger})
+
+
+def _within_allowed_hours(profile: Profile, now: datetime) -> bool:
+    try:
+        low, high = int(profile.allowed_contact_hours[0]), int(profile.allowed_contact_hours[1])
+    except Exception:
+        return True
+    local = now.astimezone(ZoneInfo(profile.timezone)).time()
+    mins = local.hour * 60 + local.minute
+    if low <= high:
+        return low * 60 <= mins < high * 60
+    return mins >= low * 60 or mins < high * 60  # overnight span

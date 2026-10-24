@@ -33,6 +33,8 @@ def redact(n: str | None) -> str:
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--yes", action="store_true", help="required: actually place the call")
+    ap.add_argument("--trigger", default="pre_event_checkin",
+                    choices=["pre_event_checkin", "morning_checkin", "extra_checkin"])
     args = ap.parse_args()
     if not args.yes:
         print("refusing: pass --yes to place a real outbound call")
@@ -46,8 +48,9 @@ async def main() -> int:
         mode=os.environ.get("CALENDAR_MODE", "live"),
     )
     ctx = await cal.snapshot(now)
+    trigger = args.trigger
     print(f"calendar_ok={ctx.calendar_ok} source={ctx.calendar_source} next_event={'yes' if ctx.next_event else 'none'}")
-    brief = build_brief(ctx, now)
+    brief = build_brief(ctx, now, trigger=trigger)
     print(f"brief: {len(brief['system'])} chars")
 
     dispatcher = VapiDispatcher(

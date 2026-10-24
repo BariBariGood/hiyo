@@ -10,3 +10,4 @@
 
 MIT license text for vendored `hr_parser.py` is available upstream at
 https://github.com/elsayed85/whoop/blob/b6f5c3aa194c21adaf341115c92c5be5798f1b52/LICENSE
+| Soul starter (`hiyo/soul/`) | teammate's prototype (`/tmp/wcs/whoop-coach-soul-starter`) | teammate-internal | Soul starter by teammate, adapted into hiyo/soul/. `docs/PRODUCT_SOUL_SPEC.md` copied as-is. |

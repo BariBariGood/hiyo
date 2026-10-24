@@ -10,5 +10,16 @@
   "spend_minutes_cap": 10.0,
   "quiet_hours_start": "21:00",
   "quiet_hours_end": "09:00",
-  "timezone": "America/Los_Angeles"
+  "timezone": "America/Los_Angeles",
+  "preferred_name": "Ivan",
+  "intervention_level": "medium",
+  "voice_style": "natural",
+  "sms_style": "direct",
+  "fitness_goal": "stay consistent with strength training",
+  "planned_workout": "45-minute gym session",
+  "sleep_target_hours": 8,
+  "morning_prep_minutes": 60,
+  "morning_checkin_enabled": true,
+  "morning_checkin_time": "08:30",
+  "allowed_contact_hours": [7, 21]
 }

@@ -20,6 +20,7 @@ class Action(str, enum.Enum):
     SILENT_ACTION = "SILENT_ACTION"  # reserved, unused in P0
     NUDGE = "NUDGE"                  # reserved, unused in P0
     CALL = "CALL"
+    DEFER = "DEFER"                  # scheduled trigger blocked only by timing
 
 
 class SourceMode(str, enum.Enum):
@@ -104,10 +105,24 @@ class Profile(BaseModel):
     quiet_hours_start: str = "21:00"
     quiet_hours_end: str = "09:00"
     timezone: str = LA_TZ
+    # Soul additions
+    preferred_name: str = "Ivan"
+    intervention_level: str = "high"  # low|medium|high — config sets "medium"
+    voice_style: str = "natural"      # direct|balanced|natural
+    sms_style: str = "direct"         # future use only — no SMS transport exists
+    fitness_goal: str = "general fitness"
+    planned_workout: str = "not supplied"
+    sleep_target_hours: float = 8.0
+    morning_prep_minutes: int = 60
+    morning_checkin_enabled: bool = True
+    morning_checkin_time: str = "08:30"
+    morning_checkin_window_minutes: int = 60
+    allowed_contact_hours: list[int] = [7, 21]
 
 
 class Decision(BaseModel):
     action: Action
+    trigger: str = "pre_event_checkin"
     reason_code: str
     plain_english: str
     candidate_id: str | None = None
@@ -119,6 +134,12 @@ class Decision(BaseModel):
 
 
 REASON_CODES = {
+    "UNSUPPORTED_TRIGGER",
+    "INTERVENTION_LOW",
+    "CHECKIN_DISABLED",
+    "OUTSIDE_ALLOWED_HOURS",
+    "NOT_DUE",
+    "SMS_UNAVAILABLE",
     "NO_CONSENT",
     "RECIPIENT_NOT_VERIFIED",
     "KILL_SWITCH",

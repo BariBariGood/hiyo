@@ -89,10 +89,37 @@
       <button data-act="unknown">unknown</button>
     </div>
     <div style="margin-top:10px">
+      <b>Intervention:</b>
+      <button data-lvl="low">low</button>
+      <button data-lvl="medium">medium</button>
+      <button data-lvl="high">high</button>
+      <b>Voice:</b>
+      <button data-vst="direct">direct</button>
+      <button data-vst="balanced">balanced</button>
+      <button data-vst="natural">natural</button>
+    </div>
+    <div style="margin-top:10px">
+      <b>Self-report:</b>
+      <label><input type="checkbox" id="srSore"> sore</label>
+      <select id="srFatigue"><option>unknown</option><option>low</option><option>medium</option><option>high</option><option>very_high</option></select>
+      <input type="text" id="srFeeling" placeholder="feeling…" maxlength="200" style="width:140px;background:#0d1117;color:var(--fg);border:1px solid #333d52;border-radius:6px;padding:6px">
+      <button id="srBtn">set</button>
+      <div class="sub" id="srShow"></div>
+    </div>
+    <div style="margin-top:10px">
+      <button id="trgMorning">Trigger morning check-in</button>
+      <button id="trgExtra">Trigger extra check-in</button>
+    </div>
+    <div style="margin-top:10px">
       <button id="killBtn" class="danger">KILL SWITCH: ?</button>
       <button id="endCallBtn">end call</button>
       <button id="resetBtn">demo reset</button>
     </div>
+  </section>
+
+  <section class="card">
+    <h2>Coach plan</h2>
+    <div class="kv" id="coachPlan">—</div>
   </section>
 
   <section class="card">
@@ -112,6 +139,11 @@ document.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>post("/api/acti
 document.getElementById("killBtn").onclick=()=>post("/api/kill",{on:!last.kill_switch});
 document.getElementById("endCallBtn").onclick=()=>post("/api/call/end",{});
 document.getElementById("resetBtn").onclick=()=>post("/api/demo/reset",{});
+document.querySelectorAll("[data-lvl]").forEach(b=>b.onclick=()=>post("/api/profile",{intervention_level:b.dataset.lvl}));
+document.querySelectorAll("[data-vst]").forEach(b=>b.onclick=()=>post("/api/profile",{voice_style:b.dataset.vst}));
+document.getElementById("srBtn").onclick=()=>post("/api/self_report",{sore:document.getElementById("srSore").checked,fatigue:document.getElementById("srFatigue").value,feeling:document.getElementById("srFeeling").value||null});
+document.getElementById("trgMorning").onclick=()=>post("/api/trigger",{trigger:"morning_checkin"}).then(d=>console.log(d));
+document.getElementById("trgExtra").onclick=()=>post("/api/trigger",{trigger:"extra_checkin"}).then(d=>console.log(d));
 let last = {};
 function esc(s){ return String(s??"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 async function tick(){
@@ -147,8 +179,18 @@ async function tick(){
     document.getElementById("guards").innerHTML = (s.guards||[])
       .map(g=>`<li class="${g.pass?"ok":"fail"}">${esc(g.guard)}</li>`).join("");
     document.getElementById("killBtn").textContent = "KILL SWITCH: " + (s.kill_switch ? "ON" : "off");
+    const pf = s.profile||{};
+    document.querySelectorAll("[data-lvl]").forEach(b=>b.classList.toggle("active", pf.intervention_level===b.dataset.lvl));
+    document.querySelectorAll("[data-vst]").forEach(b=>b.classList.toggle("active", pf.voice_style===b.dataset.vst));
+    const sr = s.self_report||{};
+    document.getElementById("srShow").textContent = (sr.sore||sr.fatigue!=="unknown"||sr.feeling)
+      ? `sore:${!!sr.sore} fatigue:${sr.fatigue} feeling:${sr.feeling?"yes":"no"} (${sr.provenance})` : "";
+    const cp = s.coach||{};
+    document.getElementById("coachPlan").innerHTML =
+      `<span>workout</span> <b>${esc(cp.workout?.suggestion||"—")}</b><br><span>why</span> <b>${esc(cp.workout?.reason||"")}</b>` +
+      (cp.bedtime?.suggested_bedtime ? `<br><span>bedtime est.</span> <b>${esc(cp.bedtime.suggested_bedtime.slice(11,16))}</b>` : `<br><span>bedtime est.</span> <b>—</b>`);
     document.getElementById("log").innerHTML = (s.recent_decisions||[])
-      .map(d=>`<div>${d.created_at.slice(11,19)} <b>${d.action}</b> ${esc(d.reason_code)}</div>`).join("");
+      .map(d=>`<div>${d.created_at.slice(11,19)} <b>${d.action}</b> [${esc(d.trigger||"")}] ${esc(d.reason_code)}</div>`).join("");
   }catch(e){ /* keep polling */ }
 }
 tick(); setInterval(tick, 1000);

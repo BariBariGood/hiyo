@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from hiyo.brief import FIRST_MESSAGE, build_brief, sanitize_title
+from hiyo.brief import build_brief, sanitize_title
 
 from conftest import NOW, make_ctx, make_event
 
@@ -35,9 +35,10 @@ def test_no_descriptions_locations_attendees():
 def test_brief_length_cap_and_safety_rules():
     ctx = make_ctx(now=NOW)
     brief = build_brief(ctx, NOW)
-    assert len(brief["system"]) <= 2000
+    assert len(brief["system"]) <= 2500
+    assert len(brief["first_message"]) <= 160
     assert "stress" in brief["system"]  # disclaimed, not claimed
-    assert brief["first_message"] == "Hey, it's your AI assistant — is now an okay time for a quick check-in?"
+    assert "AI" in brief["first_message"]  # AI disclosure in first message
 
 
 def test_no_raw_bpm_in_brief():

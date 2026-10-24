@@ -50,7 +50,7 @@ def build_service() -> Service:
     )
     return Service(
         profile=profile,
-        state_store=StateStore(ROOT / "runtime" / "state.json"),
+        state_store=StateStore(Path(os.environ.get("HIYO_STATE_PATH", ROOT / "runtime" / "state.json"))),
         calendar=calendar,
         autostart=os.environ.get("HIYO_DISABLE_LOOPS") != "1",
     )
@@ -105,7 +105,7 @@ def require_vapi_secret(request: Request) -> None:
         raise HTTPException(status_code=401, detail="bad webhook secret")
 
 
-def guard_report(service: Service) -> list[dict]:
+def guard_report(service: Service, trigger: str = "pre_event_checkin") -> list[dict]:
     """Live pass/fail mirror of the policy ladder for the dashboard."""
     s = service.store.state
     stats = service.latest_stats
@@ -122,17 +122,26 @@ def guard_report(service: Service) -> list[dict]:
 
         last = s.last_call_at if s.last_call_at.tzinfo else s.last_call_at.replace(tzinfo=timezone.utc)
         cooldown_left = max(0.0, (p.cooldown_minutes * 60) - (utcnow() - last).total_seconds())
-    return [
+    from .policy import _within_allowed_hours
+
+    base = [
         {"guard": "consent + verified owner", "pass": bool(p.opted_in and owner_ok)},
+        {"guard": "intervention level allows calls", "pass": p.intervention_level != "low" and (trigger != "extra_checkin" or p.intervention_level == "high")},
         {"guard": "kill switch off", "pass": not s.kill_switch},
-        {"guard": "fresh sufficient samples", "pass": bool(stats and not stats.stale and not stats.sensor_unavailable and stats.valid_count >= p.min_samples)},
-        {"guard": "outside quiet hours", "pass": not _in_quiet_hours(p, utcnow())},
+        {"guard": "outside quiet + allowed hours", "pass": not _in_quiet_hours(p, utcnow()) and _within_allowed_hours(p, utcnow())},
         {"guard": "calendar ok & not busy & unambiguous", "pass": bool(ctx and ctx.calendar_ok and not ctx.busy_now and not ctx.conflicting_events)},
         {"guard": "no active call / cooldown / caps", "pass": not s.active_call_id and (cooldown_left or 0) <= 0},
-        {"guard": "activity seated (not moving/unknown)", "pass": service.activity == "seated"},
-        {"guard": "sustained elevation", "pass": bool(stats and stats.sustained_elevation)},
-        {"guard": "relevant upcoming event", "pass": bool(ctx and ctx.opportunity_event)},
     ]
+    if trigger == "pre_event_checkin":
+        base += [
+            {"guard": "fresh sufficient samples", "pass": bool(stats and not stats.stale and not stats.sensor_unavailable and stats.valid_count >= p.min_samples)},
+            {"guard": "activity seated (not moving/unknown)", "pass": service.activity == "seated"},
+            {"guard": "sustained elevation", "pass": bool(stats and stats.sustained_elevation)},
+            {"guard": "relevant upcoming event", "pass": bool(ctx and ctx.opportunity_event)},
+        ]
+    elif trigger == "morning_checkin":
+        base.append({"guard": "morning check-in enabled", "pass": p.morning_checkin_enabled})
+    return base
 
 
 @app.get("/")
@@ -205,6 +214,19 @@ async def status(service: Service = Depends(svc)):
         },
         "kill_switch": s.kill_switch,
         "dispatcher": service.dispatcher_mode,
+        "profile": {
+            "preferred_name": service.profile.preferred_name,
+            "intervention_level": service.profile.intervention_level,
+            "voice_style": service.profile.voice_style,
+            "morning_checkin_enabled": service.profile.morning_checkin_enabled,
+            "morning_checkin_time": service.profile.morning_checkin_time,
+            "fitness_goal": service.profile.fitness_goal,
+            "planned_workout": service.profile.planned_workout,
+        },
+        "self_report": {**service.self_report, "provenance": service.self_report_provenance},
+        "coach": service.coach_plan(),
+        "guards_by_trigger": {t: guard_report(service, t) for t in ("morning_checkin", "extra_checkin")},
+        "decisions_by_trigger": {t: d.model_dump(mode="json") for t, d in service.latest_by_trigger.items()},
         "recent_decisions": [d.model_dump(mode="json") for d in service.recent_decisions],
     }
 
@@ -279,6 +301,56 @@ async def demo_reset(service: Service = Depends(svc)):
     return {"ok": True}
 
 
+class TriggerBody(BaseModel):
+    trigger: str
+
+
+@app.post("/api/trigger", dependencies=[Depends(require_operator)])
+async def manual_trigger(body: TriggerBody, service: Service = Depends(svc)):
+    from .policy import TRIGGERS, UNSUPPORTED_TRIGGERS
+    if body.trigger in UNSUPPORTED_TRIGGERS or body.trigger not in TRIGGERS:
+        raise HTTPException(400, f"unsupported trigger {body.trigger!r}")
+    d = await service.evaluate_once(trigger=body.trigger, force_schedule=True)
+    return d.model_dump(mode="json")
+
+
+class ProfileBody(BaseModel):
+    intervention_level: str | None = None
+    voice_style: str | None = None
+
+
+@app.post("/api/profile", dependencies=[Depends(require_operator)])
+async def set_profile(body: ProfileBody, service: Service = Depends(svc)):
+    updates = {}
+    if body.intervention_level is not None:
+        if body.intervention_level not in ("low", "medium", "high"):
+            raise HTTPException(400, "intervention_level must be low|medium|high")
+        updates["intervention_level"] = body.intervention_level
+    if body.voice_style is not None:
+        if body.voice_style not in ("direct", "balanced", "natural"):
+            raise HTTPException(400, "voice_style must be direct|balanced|natural")
+        updates["voice_style"] = body.voice_style
+    accepted = {}
+    for k, v in updates.items():
+        accepted.update(service.set_profile_pref(k, v))
+    return {"accepted": accepted, "profile": {"intervention_level": service.profile.intervention_level,
+                                              "voice_style": service.profile.voice_style}}
+
+
+class SelfReportBody(BaseModel):
+    sore: bool = False
+    fatigue: str = "unknown"
+    feeling: str | None = None
+
+
+@app.post("/api/self_report", dependencies=[Depends(require_operator)])
+async def self_report(body: SelfReportBody, service: Service = Depends(svc)):
+    if body.feeling and len(body.feeling) > 200:
+        raise HTTPException(400, "feeling must be <= 200 chars")
+    sr = service.set_self_report(sore=body.sore, fatigue=body.fatigue, feeling=body.feeling)
+    return {"self_report": sr, "provenance": service.self_report_provenance}
+
+
 @app.post("/vapi/tool")
 async def vapi_tool(request: Request, service: Service = Depends(svc), _: None = Depends(require_vapi_secret)):
     body = await request.json()
@@ -299,9 +371,18 @@ async def vapi_tool(request: Request, service: Service = Depends(svc), _: None =
     ]
     for call in calls:
         fn = (call.get("function") or {}).get("name", "")
+        args = (call.get("function") or {}).get("arguments") or {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:
+                args = {}
         if fn == "get_next_events":
             payload = {"calendar_ok": ctx.calendar_ok, "source": ctx.calendar_source, "events": events}
             results.append({"toolCallId": call.get("id"), "name": fn, "result": json.dumps(payload)})
+        elif fn == "remember_preference":
+            ok, msg = service.remember_preference(str(args.get("key", "")), str(args.get("value", "")))
+            results.append({"toolCallId": call.get("id"), "name": fn, "result": json.dumps({"ok": ok, "message": msg})})
         else:
             results.append({"toolCallId": call.get("id"), "name": fn, "result": json.dumps({"error": "unknown tool"})})
     return JSONResponse({"results": results})

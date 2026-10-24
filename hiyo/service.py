@@ -11,7 +11,10 @@ from pathlib import Path
 
 from . import audit
 from .brief import build_brief
+from .brief_utils import sanitize_untrusted
 from .calendar import CalendarProvider
+from .soul import coach as soul_coach
+from .soul.memory import LONG_TERM_KEYS, MemoryStore, overlay_profile
 from .dispatcher import Dispatcher, make_dispatcher
 from .models import (
     Action,
@@ -48,7 +51,8 @@ class Service:
         owner_phone: str | None = None,
         autostart: bool = True,
     ) -> None:
-        self.profile = profile
+        self.memory = MemoryStore(Path("runtime/memory.json"))
+        self.profile = overlay_profile(profile, self.memory.data)
         self.store = state_store
         self.calendar = calendar
         self.owner_phone = owner_phone or os.environ.get("OWNER_PHONE_NUMBER")
@@ -65,6 +69,9 @@ class Service:
 
         self.latest_sample: SensorSample | None = None
         self.latest_decision: Decision | None = None
+        self.latest_by_trigger: dict[str, Decision] = {}
+        self.self_report: dict = {"sore": False, "fatigue": "unknown", "feeling": None}
+        self.self_report_provenance: str | None = None
         self.latest_stats: WindowStats | None = None
         self.latest_context: ContextSnapshot | None = None
         self.recent_decisions: deque[Decision] = deque(maxlen=20)
@@ -144,11 +151,17 @@ class Service:
         while True:
             try:
                 await self.evaluate_once()
+                await self.evaluate_once(trigger="morning_checkin")
             except Exception:
                 log.exception("decision tick failed")
             await asyncio.sleep(DECISION_TICK_S)
 
-    async def evaluate_once(self, now: datetime | None = None) -> Decision:
+    async def evaluate_once(
+        self,
+        now: datetime | None = None,
+        trigger: str = "pre_event_checkin",
+        force_schedule: bool = False,
+    ) -> Decision:
         now = now or utcnow()
         stats = self.window.stats(
             now,
@@ -159,30 +172,39 @@ class Service:
         context = await self.calendar.snapshot(
             now, activity=self.activity, activity_provenance=self.activity_provenance
         )
-        decision = decide(stats, context, self.profile, self.store.state, now,
-                          owner_phone=self.owner_phone)
+        decision = decide(
+            stats, context, self.profile, self.store.state, now,
+            owner_phone=self.owner_phone, trigger=trigger,
+            force_schedule=force_schedule,
+        )
         self.latest_stats = stats
         self.latest_context = context
-        self.latest_decision = decision
+        self.latest_by_trigger[trigger] = decision
+        if trigger == "pre_event_checkin":
+            self.latest_decision = decision
         self.recent_decisions.appendleft(decision)
 
-        key = (decision.action, decision.reason_code, decision.candidate_id)
+        key = (trigger, decision.action, decision.reason_code, decision.candidate_id)
         if key != self._last_logged_key:
             audit.record("decision", {"decision": decision.model_dump(mode="json")})
             self._last_logged_key = key
 
         if decision.action == Action.CALL:
-            await self._execute_dispatch(decision, context, now)
+            await self._execute_dispatch(decision, context, now, trigger, stats)
         return decision
 
-    async def _execute_dispatch(self, decision: Decision, context: ContextSnapshot, now: datetime) -> None:
+    async def _execute_dispatch(self, decision: Decision, context: ContextSnapshot,
+                                now: datetime, trigger: str = "pre_event_checkin",
+                                stats: WindowStats | None = None) -> None:
         try:
             self.store.record_dispatch_attempt(decision.candidate_id or "", now)
         except Exception:
             log.exception("state persist failed; refusing dispatch")
             audit.record("dispatch_failed", {"candidate_id": decision.candidate_id, "error": "state persist failed"})
             return
-        brief = build_brief(context, now)
+        brief = build_brief(context, now, profile=self.profile, stats=stats,
+                            self_report=self.self_report, trigger=trigger,
+                            coach=self.coach_plan())
         try:
             result = await self.dispatcher.dispatch(self.owner_phone or "", brief)
         except Exception as exc:
@@ -238,5 +260,58 @@ class Service:
         self.window.clear()
         self.latest_sample = None
         self.latest_decision = None
+        self.latest_by_trigger = {}
         self.last_dispatch_error = None
+        self.self_report = {"sore": False, "fatigue": "unknown", "feeling": None}
+        self.self_report_provenance = None
         audit.record("demo_reset", {})
+
+    def set_self_report(self, sore: bool = False, fatigue: str = "unknown",
+                        feeling: str | None = None) -> dict:
+        self.self_report = {
+            "sore": bool(sore),
+            "fatigue": fatigue if fatigue in {"low", "medium", "high", "very_high"} else "unknown",
+            "feeling": sanitize_untrusted(feeling, 200) if feeling else None,
+        }
+        self.self_report_provenance = "operator_demo_input"
+        audit.record("self_report", {"sore": self.self_report["sore"],
+                                     "fatigue": self.self_report["fatigue"],
+                                     "has_feeling": bool(self.self_report["feeling"])})
+        return self.self_report
+
+    def set_profile_pref(self, key: str, value) -> dict:
+        accepted = self.memory.update({key: value})
+        self.profile = overlay_profile(self.profile, self.memory.data)
+        audit.record("profile_update", {"key": key})
+        return accepted
+
+    def remember_preference(self, key: str, value: str) -> tuple[bool, str]:
+        """remember_preference tool handler — whitelist enforced."""
+        clean = sanitize_untrusted(value, 100) if isinstance(value, str) else str(value)
+        if key not in LONG_TERM_KEYS:
+            return False, f"can't store '{key}': not a permitted preference"
+        self.memory.update({key: clean})
+        self.profile = overlay_profile(self.profile, self.memory.data)
+        audit.record("memory_update", {"key": key, "value": clean})
+        return True, f"remembered {key}"
+
+    def coach_plan(self) -> dict:
+        ctx = self.latest_context
+        next_morning = None
+        if ctx is not None:
+            from zoneinfo import ZoneInfo
+            from .models import LA_TZ
+            tz = ZoneInfo(LA_TZ)
+            today = utcnow().astimezone(tz).date()
+            for e in ctx.upcoming_events:
+                if e.start.astimezone(tz).date() > today:
+                    next_morning = e.start
+                    break
+        stats = self.latest_stats
+        return {
+            "workout": soul_coach.suggest_workout(
+                self.profile, self.self_report,
+                bool(stats and stats.sustained_elevation and not stats.stale),
+            ),
+            "bedtime": soul_coach.suggest_bedtime(self.profile, next_morning),
+        }

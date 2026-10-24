@@ -60,3 +60,30 @@
 - `runtime/` gitignored; audit log redacts phone numbers to last 2 digits
   and never writes tokens.
 - `simulated:true` propagates through window → decision → audit → dashboard.
+
+## Soul merge (2026-10-24 ~15:45)
+
+- Ported teammate's Soul starter into `hiyo/soul/` (persona, coach, memory);
+  `docs/PRODUCT_SOUL_SPEC.md` copied as-is. Soul shapes triggers + call content;
+  `hiyo/policy.py` remains the sole CALL authority (all 111 tests green).
+- **SMS_UNAVAILABLE**: no SMS transport exists (US A2P registration). Soul would
+  have chosen SMS for some events — we have no SMS-preferring triggers, so the
+  reason is registered but unreachable today. `sms_style` kept in profile for
+  future use.
+- Intervention caps: low → INTERVENTION_LOW (0 calls), medium → 1/day,
+  high → 2/day; effective cap = min(profile.daily_call_cap, level cap).
+  `Profile.intervention_level` defaults to "high" so the pre-Soul test fixture
+  (daily_call_cap=2 semantics) stays valid; config/profile.json sets "medium".
+- Cooldown kept at 30 min (Soul's policy.json used 120 min).
+- Triggers: pre_event_checkin (unchanged ladder), morning_checkin (once per LA
+  day, ≥medium, skips sensor/elevation/opportunity guards), extra_checkin
+  (operator-only, requires high). Unknown/emergency/stress triggers →
+  UNSUPPORTED_TRIGGER. DEFER added for scheduled triggers blocked only by
+  CALENDAR_BUSY / OUTSIDE_ALLOWED_HOURS / NOT_DUE / QUIET_HOURS.
+- `remember_preference` Vapi tool: whitelisted keys only, ≤100 chars sanitized.
+- Health facts are qualitative only — no BPM numbers ever reach the prompt.
+- Safety note: restarting the armed (DISPATCHER=vapi) server would immediately
+  evaluate morning_checkin → CALL. Today's candidate was pre-locked in
+  runtime/state.json (dispatched_candidate_ids) so the running server shows
+  DUPLICATE_CANDIDATE; /api/demo/reset clears it for a live demo.
+- HIYO_STATE_PATH env added so a second instance can run isolated state.
