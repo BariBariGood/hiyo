@@ -2,198 +2,304 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>hiyo — operator dashboard</title>
+<title>hiyo — your personal health companion</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
 <style>
-  :root { --bg:#0b0e14; --card:#151a24; --fg:#e8ecf4; --dim:#8b93a5; --green:#2ecc71; --red:#ff4d5e; --amber:#ffb020; }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,"SF Mono",Menlo,monospace; }
-  header { display:flex; align-items:center; gap:16px; padding:18px 28px; }
-  h1 { font-size:22px; margin:0; letter-spacing:1px; }
-  .badge { font-size:26px; font-weight:800; padding:6px 22px; border-radius:8px; letter-spacing:2px; }
-  .badge.live { background:#0f5132; color:var(--green); }
-  .badge.sim { background:#5a1620; color:var(--red); animation:pulse 1.6s infinite; }
-  @keyframes pulse { 50% { opacity:.65; } }
-  main { display:grid; grid-template-columns:1.1fr 1fr 1fr; gap:16px; padding:0 28px 28px; }
-  .card { background:var(--card); border-radius:12px; padding:18px 20px; }
-  .card h2 { margin:0 0 10px; font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:1.5px; }
-  .bpm { font-size:96px; font-weight:800; line-height:1; }
-  .bpm small { font-size:20px; color:var(--dim); font-weight:400; }
-  .sub { color:var(--dim); font-size:14px; margin-top:8px; }
-  .decision { font-size:34px; font-weight:800; }
-  .decision.CALL { color:var(--green); } .decision.IGNORE { color:var(--dim); }
-  .reason { color:var(--amber); font-size:15px; margin-top:6px; }
-  .plain { color:var(--fg); font-size:14px; margin-top:6px; line-height:1.5; }
-  ul.guards { list-style:none; padding:0; margin:0; font-size:14px; }
-  ul.guards li { padding:5px 0; border-bottom:1px solid #232a38; }
-  ul.guards li::before { content:"● "; }
-  ul.guards li.ok::before { color:var(--green); }
-  ul.guards li.fail::before { color:var(--red); }
-  button { background:#232a38; color:var(--fg); border:1px solid #333d52; border-radius:8px; padding:8px 14px; font-size:14px; cursor:pointer; margin:3px 4px 3px 0; font-family:inherit; }
-  button:hover { background:#2c3648; }
-  button.danger { background:#5a1620; border-color:#7a2233; }
-  button.active { outline:2px solid var(--amber); }
-  table { width:100%; border-collapse:collapse; font-size:12px; }
-  td,th { text-align:left; padding:4px 6px; border-bottom:1px solid #232a38; color:var(--dim); }
-  td:first-child { color:var(--fg); }
-  .log { max-height:220px; overflow:auto; font-size:12px; color:var(--dim); }
-  .log div { padding:3px 0; border-bottom:1px solid #1c2230; }
-  .kv { font-size:14px; line-height:1.9; }
-  .kv b { color:var(--fg); } .kv span { color:var(--dim); }
+:root{
+  --bg:#F7F8FA; --card:#FFFFFF; --ink:#1F2329; --dim:#5C6675; --faint:#8E98A6;
+  --red:#E3262F; --red-soft:#FDE8E9; --teal:#3BA7E5; --teal-soft:#E3F2FC;
+  --line:#E8ECF1; --shadow:0 10px 40px rgba(31,35,41,.07),0 2px 8px rgba(31,35,41,.05);
+  --r:32px; --font:"Nunito",-apple-system,"Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);padding:22px 34px 14px;min-height:100vh}
+header{display:flex;align-items:center;gap:18px;max-width:1500px;margin:0 auto 18px}
+.baymax-face{display:flex;align-items:center;flex-shrink:0}
+.baymax-face .eye{width:22px;height:26px;background:var(--ink);border-radius:50%;transform-origin:center;animation:blink 5.2s infinite}
+.baymax-face .eye:last-child{animation-delay:.06s}
+.baymax-face .bridge{width:34px;height:3px;background:var(--ink);border-radius:2px;margin:0 2px;transition:background .4s}
+.baymax-face.call .bridge{background:var(--red)}
+.baymax-face.call .eye{background:var(--red)}
+@keyframes blink{0%,92%,100%{transform:scaleY(1)}95%,97%{transform:scaleY(.08)}}
+h1{font-size:30px;font-weight:900;letter-spacing:-.5px}
+.tag{color:var(--dim);font-size:15px;font-weight:600}
+.spacer{flex:1}
+.badge{font-size:22px;font-weight:900;padding:10px 26px;border-radius:999px;letter-spacing:1.5px;display:inline-flex;align-items:center;gap:10px}
+.badge .dot{width:14px;height:14px;border-radius:50%}
+.badge.live{background:var(--teal-soft);color:#1473B0}.badge.live .dot{background:var(--teal);animation:breathe 2.4s infinite}
+.badge.sim{background:var(--red-soft);color:var(--red)}.badge.sim .dot{background:var(--red);animation:breathe 1.6s infinite}
+@keyframes breathe{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.35);opacity:.6}}
+
+main{max-width:1500px;margin:0 auto;display:grid;grid-template-columns:1.25fr 1.35fr 1.05fr;gap:18px}
+.card{background:var(--card);border-radius:var(--r);padding:24px 28px;box-shadow:var(--shadow);transition:transform .25s}
+.card:hover{transform:scale(1.008)}
+.card h2{font-size:12px;font-weight:800;color:var(--faint);text-transform:uppercase;letter-spacing:2px;margin-bottom:14px}
+.hero{grid-column:1/-1;display:flex;align-items:center;gap:36px;padding:26px 34px}
+.heart{font-size:110px;line-height:1;color:var(--red);animation:heartbeat 1.15s infinite;transform-origin:center;filter:drop-shadow(0 6px 16px rgba(227,38,47,.28))}
+.heart.simh{color:#F2AEB2;filter:none}
+@keyframes heartbeat{0%,100%{transform:scale(1)}14%{transform:scale(1.12)}28%{transform:scale(1)}42%{transform:scale(1.1)}56%{transform:scale(1)}}
+.bpm-num{font-size:120px;font-weight:900;line-height:.95;letter-spacing:-3px}
+.bpm-num small{font-size:26px;font-weight:800;color:var(--faint);letter-spacing:0}
+.meta{color:var(--dim);font-size:15px;font-weight:600;margin-top:8px}
+.meta b{color:var(--ink)}
+
+.elev-wrap{margin-left:auto;min-width:340px}
+.elev-label{font-size:13px;font-weight:800;color:var(--dim);margin-bottom:8px}
+.elev-track{display:flex;gap:6px}
+.elev-seg{flex:1;height:34px;border-radius:12px;background:var(--card);border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;color:var(--faint);transition:.3s}
+.elev-seg.on{background:linear-gradient(180deg,var(--teal),#2B8FD1);border-color:var(--teal);color:#fff}
+.elev-seg.on.hot{background:linear-gradient(180deg,var(--red),#C81E27);border-color:var(--red)}
+.elev-seg.cur{outline:3px solid var(--ink);outline-offset:1px;transform:scale(1.08)}
+.elev-note{font-size:12px;color:var(--faint);margin-top:6px}
+
+.decision{display:flex;flex-direction:column;justify-content:center}
+.action{font-size:56px;font-weight:900;letter-spacing:-1px;line-height:1}
+.action.CALL{color:var(--red)}.action.IGNORE{color:#3FA66B}.action.DEFER{color:#E9A13B}
+.reason-code{display:inline-block;margin-top:10px;font-weight:800;font-size:14px;color:var(--dim);background:var(--bg);border-radius:999px;padding:4px 14px;align-self:flex-start}
+.plain{margin-top:12px;font-size:17px;line-height:1.45;color:var(--dim);font-weight:600}
+.trig{margin-top:10px;font-size:13px;color:var(--faint);font-weight:700}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:800;border-radius:999px;padding:7px 14px}
+.chip.ok{background:var(--teal-soft);color:#1473B0}
+.chip.ok::before{content:"✓"}
+.chip.fail{background:var(--red-soft);color:var(--red)}
+.chip.fail::before{content:"✕"}
+.trig-tabs{display:flex;gap:8px;margin-bottom:12px}
+.trig-tab{font-size:13px;font-weight:800;padding:7px 16px;border-radius:999px;border:2px solid var(--line);background:var(--card);color:var(--dim);cursor:pointer;font-family:inherit}
+.trig-tab.active{border-color:var(--teal);color:#1473B0;background:var(--teal-soft)}
+
+.kv{font-size:15px;font-weight:600;line-height:2;color:var(--dim)}
+.kv b{color:var(--ink)}
+.callstate{font-size:15px;font-weight:700}
+.callstate .on{color:var(--red)}
+
+.controls{grid-column:1/-1;padding:0}
+details.drawer{border-radius:var(--r);background:var(--card);box-shadow:var(--shadow)}
+details.drawer summary{cursor:pointer;list-style:none;padding:16px 28px;font-weight:900;font-size:15px;color:var(--dim);display:flex;align-items:center;gap:10px}
+details.drawer summary::before{content:"▸";transition:.2s;font-size:18px}
+details.drawer[open] summary::before{transform:rotate(90deg)}
+.drawer-body{padding:6px 28px 26px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}
+.ctl-group h3{font-size:11px;font-weight:800;color:var(--faint);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px}
+button{background:var(--card);color:var(--ink);border:2px solid var(--line);border-radius:999px;padding:10px 20px;font-size:14px;font-weight:800;cursor:pointer;margin:3px 4px 3px 0;min-height:44px;font-family:inherit;transition:.15s}
+button:hover{border-color:var(--teal);color:#1473B0;transform:scale(1.03)}
+button:focus-visible{outline:3px solid var(--teal);outline-offset:2px}
+button.active{background:var(--teal-soft);border-color:var(--teal);color:#1473B0}
+button.danger{border-color:var(--red);color:var(--red)}
+button.danger:hover{background:var(--red);color:#fff}
+button.warn-on{background:var(--red);color:#fff;border-color:var(--red)}
+select,input[type=text]{font-family:inherit;font-size:14px;font-weight:700;padding:10px 14px;border-radius:14px;border:2px solid var(--line);background:var(--card);color:var(--ink);min-height:44px}
+input[type=checkbox]{width:22px;height:22px;accent-color:var(--teal)}
+
+.logline{padding:6px 0;border-bottom:1px solid var(--line);font-size:13px;color:var(--dim);font-weight:600}
+.logline b{color:var(--ink)} .logline .CALL{color:var(--red)}
+footer{max-width:1500px;margin:16px auto 4px;display:flex;justify-content:space-between;color:var(--faint);font-size:12px;font-weight:600}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media(max-width:1100px){main{grid-template-columns:1fr}.hero{flex-wrap:wrap}}
 </style>
 </head>
 <body>
 <header>
-  <h1>hiyo</h1>
-  <div id="srcBadge" class="badge sim">—</div>
-  <div id="clock" class="sub"></div>
+  <div class="baymax-face" id="baymaxFace" aria-hidden="true"><span class="eye"></span><span class="bridge"></span><span class="eye"></span></div>
+  <div><h1>hiyo</h1><div class="tag">Hello. I am hiyo, your personal health companion.</div></div>
+  <div class="spacer"></div>
+  <div id="srcBadge" class="badge sim"><span class="dot"></span>SIMULATED</div>
 </header>
 <main>
-  <section class="card">
-    <h2>Heart rate</h2>
-    <div class="bpm"><span id="bpm">—</span><small> bpm</small></div>
-    <div class="sub" id="sampleMeta">no samples yet</div>
-    <div class="sub" id="windowMeta"></div>
+  <section class="card hero">
+    <div class="heart" id="heart">♥</div>
+    <div>
+      <div class="bpm-num"><span id="bpm">—</span><small> bpm</small></div>
+      <div class="meta" id="sampleMeta">waiting for readings…</div>
+      <div class="meta" id="windowMeta"></div>
+    </div>
+    <div class="elev-wrap">
+      <div class="elev-label">elevation vs your baseline <span style="font-weight:600">— not a medical score</span></div>
+      <div class="elev-track" id="elevTrack"></div>
+      <div class="elev-note" id="elevNote">scale of 1–10 · sustained readings vs declared resting baseline</div>
+    </div>
+  </section>
+
+  <section class="card decision" aria-live="polite">
+    <h2>My decision</h2>
+    <div id="decision" class="action">—</div>
+    <div><span id="reason" class="reason-code"></span></div>
+    <div id="plain" class="plain">I will not interrupt you.</div>
+    <div id="trig" class="trig"></div>
   </section>
 
   <section class="card">
-    <h2>Decision</h2>
-    <div id="decision" class="decision">—</div>
-    <div id="reason" class="reason"></div>
-    <div id="plain" class="plain"></div>
-    <div class="sub" id="callMeta"></div>
+    <h2>Guards <span style="font-weight:600;text-transform:none">— every check must pass before I call</span></h2>
+    <div class="trig-tabs" id="trigTabs"></div>
+    <div class="chips" id="guards"></div>
   </section>
 
   <section class="card">
     <h2>Calendar</h2>
     <div class="kv" id="calInfo">—</div>
-  </section>
-
-  <section class="card">
-    <h2>Guards</h2>
-    <ul class="guards" id="guards"></ul>
-  </section>
-
-  <section class="card">
-    <h2>Controls</h2>
-    <div>
-      <b>Scenario:</b><br>
-      <button data-scn="resting_normal">resting_normal</button>
-      <button data-scn="elevated_resting">elevated_resting</button>
-      <button data-scn="elevated_moving">elevated_moving</button>
-    </div>
-    <div style="margin-top:10px">
-      <b>Activity (manual demo flag):</b><br>
-      <button data-act="seated">seated</button>
-      <button data-act="moving">moving</button>
-      <button data-act="unknown">unknown</button>
-    </div>
-    <div style="margin-top:10px">
-      <b>Intervention:</b>
-      <button data-lvl="low">low</button>
-      <button data-lvl="medium">medium</button>
-      <button data-lvl="high">high</button>
-      <b>Voice:</b>
-      <button data-vst="direct">direct</button>
-      <button data-vst="balanced">balanced</button>
-      <button data-vst="natural">natural</button>
-    </div>
-    <div style="margin-top:10px">
-      <b>Self-report:</b>
-      <label><input type="checkbox" id="srSore"> sore</label>
-      <select id="srFatigue"><option>unknown</option><option>low</option><option>medium</option><option>high</option><option>very_high</option></select>
-      <input type="text" id="srFeeling" placeholder="feeling…" maxlength="200" style="width:140px;background:#0d1117;color:var(--fg);border:1px solid #333d52;border-radius:6px;padding:6px">
-      <button id="srBtn">set</button>
-      <div class="sub" id="srShow"></div>
-    </div>
-    <div style="margin-top:10px">
-      <button id="trgMorning">Trigger morning check-in</button>
-      <button id="trgExtra">Trigger extra check-in</button>
-    </div>
-    <div style="margin-top:10px">
-      <button id="killBtn" class="danger">KILL SWITCH: ?</button>
-      <button id="endCallBtn">end call</button>
-      <button id="resetBtn">demo reset</button>
-    </div>
-  </section>
-
-  <section class="card">
-    <h2>Coach plan</h2>
+    <h2 style="margin-top:18px">Coach plan</h2>
     <div class="kv" id="coachPlan">—</div>
+    <h2 style="margin-top:18px">Self-report</h2>
+    <div class="kv" id="srShow">—</div>
+  </section>
+
+  <section class="card" style="grid-column:span 2">
+    <h2>Decision log</h2>
+    <div id="log" style="max-height:340px;overflow:auto"></div>
   </section>
 
   <section class="card">
-    <h2>Recent decisions</h2>
-    <div class="log" id="log"></div>
+    <h2>Call status</h2>
+    <div class="kv" id="callMeta">—</div>
+  </section>
+
+  <section class="controls">
+    <details class="drawer" id="drawer">
+      <summary>Operator controls</summary>
+      <div class="drawer-body">
+        <div class="ctl-group"><h3>Scenario</h3>
+          <button data-scn="resting_normal">resting_normal</button>
+          <button data-scn="elevated_resting">elevated_resting</button>
+          <button data-scn="elevated_moving">elevated_moving</button>
+        </div>
+        <div class="ctl-group"><h3>Activity flag</h3>
+          <button data-act="seated">seated</button>
+          <button data-act="moving">moving</button>
+          <button data-act="unknown">unknown</button>
+        </div>
+        <div class="ctl-group"><h3>Intervention level</h3>
+          <button data-lvl="low">low</button><button data-lvl="medium">medium</button><button data-lvl="high">high</button>
+          <h3 style="margin-top:14px">Voice style</h3>
+          <button data-vst="direct">direct</button><button data-vst="balanced">balanced</button><button data-vst="natural">natural</button>
+        </div>
+        <div class="ctl-group"><h3>Self-report</h3>
+          <label style="font-weight:700;font-size:14px"><input type="checkbox" id="srSore"> sore</label>
+          <select id="srFatigue"><option>unknown</option><option>low</option><option>medium</option><option>high</option><option>very_high</option></select>
+          <input type="text" id="srFeeling" placeholder="feeling…" maxlength="200" style="width:150px">
+          <button id="srBtn">set</button>
+        </div>
+        <div class="ctl-group"><h3>Triggers</h3>
+          <button id="trgMorning">morning check-in</button>
+          <button id="trgExtra">extra check-in</button>
+        </div>
+        <div class="ctl-group"><h3>System</h3>
+          <button id="killBtn" class="danger">KILL SWITCH</button>
+          <button id="endCallBtn">end call</button>
+          <button id="resetBtn">demo reset</button>
+        </div>
+      </div>
+    </details>
   </section>
 </main>
+<footer>
+  <span id="clock"></span>
+  <span>Theme inspired by Baymax (Big Hero 6, Disney). Fan tribute, not affiliated.</span>
+</footer>
 <script>
-const OP = window.HIYO_OP_TOKEN || "";  // set via console if HIYO_OPERATOR_TOKEN is enabled
+const OP = window.HIYO_OP_TOKEN || "";
 async function post(path, body){
-  const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json", "X-Operator-Token": OP}, body: JSON.stringify(body||{})});
+  const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json","X-Operator-Token":OP}, body:JSON.stringify(body||{})});
   if(!r.ok) console.warn(path, r.status);
   return r.json().catch(()=>({}));
 }
 document.querySelectorAll("[data-scn]").forEach(b=>b.onclick=()=>post("/api/scenario",{name:b.dataset.scn}));
 document.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>post("/api/activity",{activity:b.dataset.act}));
-document.getElementById("killBtn").onclick=()=>post("/api/kill",{on:!last.kill_switch});
-document.getElementById("endCallBtn").onclick=()=>post("/api/call/end",{});
-document.getElementById("resetBtn").onclick=()=>post("/api/demo/reset",{});
 document.querySelectorAll("[data-lvl]").forEach(b=>b.onclick=()=>post("/api/profile",{intervention_level:b.dataset.lvl}));
 document.querySelectorAll("[data-vst]").forEach(b=>b.onclick=()=>post("/api/profile",{voice_style:b.dataset.vst}));
 document.getElementById("srBtn").onclick=()=>post("/api/self_report",{sore:document.getElementById("srSore").checked,fatigue:document.getElementById("srFatigue").value,feeling:document.getElementById("srFeeling").value||null});
-document.getElementById("trgMorning").onclick=()=>post("/api/trigger",{trigger:"morning_checkin"}).then(d=>console.log(d));
-document.getElementById("trgExtra").onclick=()=>post("/api/trigger",{trigger:"extra_checkin"}).then(d=>console.log(d));
-let last = {};
-function esc(s){ return String(s??"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+document.getElementById("trgMorning").onclick=()=>post("/api/trigger",{trigger:"morning_checkin"});
+document.getElementById("trgExtra").onclick=()=>post("/api/trigger",{trigger:"extra_checkin"});
+document.getElementById("killBtn").onclick=()=>post("/api/kill",{on:!last.kill_switch});
+document.getElementById("endCallBtn").onclick=()=>post("/api/call/end",{});
+document.getElementById("resetBtn").onclick=()=>post("/api/demo/reset",{});
+let last={};
+function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+
+const TRIGGERS=["pre_event_checkin","morning_checkin","extra_checkin"];
+let guardTrigger="pre_event_checkin";
+const tabs=document.getElementById("trigTabs");
+TRIGGERS.forEach(t=>{
+  const b=document.createElement("button");
+  b.className="trig-tab"+(t===guardTrigger?" active":"");
+  b.textContent=t.replace(/_/g," ");
+  b.onclick=()=>{guardTrigger=t;document.querySelectorAll(".trig-tab").forEach(x=>x.classList.toggle("active",x===b));renderGuards(last);};
+  tabs.appendChild(b);
+});
+const elevTrack=document.getElementById("elevTrack");
+for(let i=1;i<=10;i++){const seg=document.createElement("div");seg.className="elev-seg";seg.textContent=i;elevTrack.appendChild(seg);}
+
+function renderGuards(s){
+  const g = guardTrigger==="pre_event_checkin" ? s.guards : (s.guards_by_trigger||{})[guardTrigger];
+  document.getElementById("guards").innerHTML=(g||[]).map(x=>`<span class="chip ${x.pass?"ok":"fail"}">${esc(x.guard)}</span>`).join("");
+}
+function elevScore(s){
+  const w=s.window; if(!w||!w.median_bpm||!w.threshold_bpm)return {score:0,hot:false};
+  const frac=Math.max(0,Math.min(1.2,w.median_bpm/w.threshold_bpm));
+  const score=Math.max(0,Math.min(10,Math.round(frac*10)));
+  return {score,hot:!!w.sustained_elevation||w.median_bpm>=w.threshold_bpm};
+}
 async function tick(){
   try{
-    const s = await (await fetch("/api/status")).json();
-    last = s;
-    const badge = document.getElementById("srcBadge");
-    const sim = s.sample ? s.sample.simulated : true;
-    badge.textContent = sim ? "SIMULATED" : "REAL";
-    badge.className = "badge " + (sim ? "sim" : "live");
-    document.getElementById("bpm").textContent = s.sample?.bpm ?? "—";
-    document.getElementById("sampleMeta").textContent = s.sample
-      ? `${s.sample.source} · age ${s.sample.age_s}s · sensor ${s.sensor_status} · mode ${s.sensor_mode}`
-      : `sensor ${s.sensor_status} · mode ${s.sensor_mode}`;
-    document.getElementById("windowMeta").textContent = s.window
-      ? `window: ${s.window.valid_count} samples · median ${s.window.median_bpm??"—"} · threshold ${s.window.threshold_bpm??"—"} · ${Math.round((s.window.fraction_above||0)*100)}% above`
-      : "";
-    const d = s.decision;
-    const dEl = document.getElementById("decision");
-    dEl.textContent = d ? d.action : "—";
-    dEl.className = "decision " + (d?.action||"");
-    document.getElementById("reason").textContent = d ? d.reason_code : "";
-    document.getElementById("plain").textContent = d ? d.plain_english : "";
-    document.getElementById("callMeta").textContent =
-      `dispatcher ${s.dispatcher} · call ${s.call.active_call_id ?? "none"} · today ${s.call.calls_today}` +
-      (s.call.last_dispatch_error ? ` · last error: ${s.call.last_dispatch_error}` : "");
-    const c = s.calendar;
-    document.getElementById("calInfo").innerHTML = c
-      ? `<span>source</span> <b>${esc(c.source)}</b> · <span>ok</span> <b>${c.ok}</b> · <span>busy</span> <b>${c.busy_now}</b>` +
-        (c.conflicting ? ` · <b style="color:var(--red)">CONFLICTING</b>` : "") +
-        (c.next_event ? `<br><span>next</span> <b>${esc(c.next_event.title)}</b><br><span>in</span> <b>${c.next_event.minutes_until} min</b>` : "<br><span>no upcoming event</span>")
-      : "—";
-    document.getElementById("guards").innerHTML = (s.guards||[])
-      .map(g=>`<li class="${g.pass?"ok":"fail"}">${esc(g.guard)}</li>`).join("");
-    document.getElementById("killBtn").textContent = "KILL SWITCH: " + (s.kill_switch ? "ON" : "off");
-    const pf = s.profile||{};
-    document.querySelectorAll("[data-lvl]").forEach(b=>b.classList.toggle("active", pf.intervention_level===b.dataset.lvl));
-    document.querySelectorAll("[data-vst]").forEach(b=>b.classList.toggle("active", pf.voice_style===b.dataset.vst));
-    const sr = s.self_report||{};
-    document.getElementById("srShow").textContent = (sr.sore||sr.fatigue!=="unknown"||sr.feeling)
-      ? `sore:${!!sr.sore} fatigue:${sr.fatigue} feeling:${sr.feeling?"yes":"no"} (${sr.provenance})` : "";
-    const cp = s.coach||{};
-    document.getElementById("coachPlan").innerHTML =
-      `<span>workout</span> <b>${esc(cp.workout?.suggestion||"—")}</b><br><span>why</span> <b>${esc(cp.workout?.reason||"")}</b>` +
-      (cp.bedtime?.suggested_bedtime ? `<br><span>bedtime est.</span> <b>${esc(cp.bedtime.suggested_bedtime.slice(11,16))}</b>` : `<br><span>bedtime est.</span> <b>—</b>`);
-    document.getElementById("log").innerHTML = (s.recent_decisions||[])
-      .map(d=>`<div>${d.created_at.slice(11,19)} <b>${d.action}</b> [${esc(d.trigger||"")}] ${esc(d.reason_code)}</div>`).join("");
-  }catch(e){ /* keep polling */ }
+    const s=await(await fetch("/api/status")).json(); last=s;
+    const sim=s.sample?s.sample.simulated:true;
+    const badge=document.getElementById("srcBadge");
+    badge.innerHTML=`<span class="dot"></span>${sim?"SIMULATED":"REAL"}`;
+    badge.className="badge "+(sim?"sim":"live");
+    document.getElementById("heart").className="heart"+(sim?" simh":"");
+    document.getElementById("bpm").textContent=s.sample?.bpm??"—";
+    document.getElementById("sampleMeta").innerHTML=s.sample
+      ?`source <b>${esc(s.sample.source)}</b> · age <b>${s.sample.age_s}s</b> · sensor <b>${esc(s.sensor_status)}</b> · mode <b>${esc(s.sensor_mode)}</b>`
+      :`sensor <b>${esc(s.sensor_status)}</b> · mode <b>${esc(s.sensor_mode)}</b>`;
+    document.getElementById("windowMeta").innerHTML=s.window
+      ?`window <b>${s.window.valid_count}</b> samples · median <b>${s.window.median_bpm??"—"}</b> · ${Math.round((s.window.fraction_above||0)*100)}% above baseline+delta`
+      :"";
+    const ev=elevScore(s);
+    document.querySelectorAll(".elev-seg").forEach((el,i)=>{
+      const filled=i<ev.score;
+      el.className="elev-seg"+(filled?(ev.hot?" on hot":" on"):"")+(i+1===ev.score?" cur":"");
+    });
+    const cap=!s.window?"no data yet":s.window.sustained_elevation?"sustained elevation detected":(s.window.median_bpm&&s.window.threshold_bpm&&s.window.median_bpm>=s.window.threshold_bpm*0.85?"approaching baseline+delta":"within typical range");
+    document.getElementById("elevNote").textContent=`level ${ev.score}/10 · ${cap} — not a medical score`;
+
+    const d=s.decision;
+    const dEl=document.getElementById("decision");
+    dEl.textContent=d?d.action:"—"; dEl.className="action "+(d?.action||"");
+    document.getElementById("reason").textContent=d?d.reason_code:"";
+    document.getElementById("plain").textContent=d?d.plain_english:"I will not interrupt you.";
+    document.getElementById("trig").textContent=d?`trigger: ${d.trigger||"—"}`:"";
+    document.getElementById("baymaxFace").classList.toggle("call",d?.action==="CALL");
+    document.getElementById("callMeta").innerHTML=
+      `dispatcher <b>${esc(s.dispatcher)}</b> · call <b class="callstate">${s.call.active_call_id?`<span class="on">${esc(s.call.active_call_id)}</span>`:"none"}</b> · today <b>${s.call.calls_today}</b>`+
+      (s.call.last_dispatch_error?` · <b style="color:var(--red)">${esc(s.call.last_dispatch_error)}</b>`:"");
+    const c=s.calendar;
+    document.getElementById("calInfo").innerHTML=c
+      ?`<span>source</span> <b>${esc(c.source)}</b> · <span>ok</span> <b>${c.ok}</b> · <span>busy</span> <b>${c.busy_now}</b>`+
+        (c.conflicting?` · <b style="color:var(--red)">CONFLICTING</b>`:"")+
+        (c.next_event?`<br><span>next</span> <b>${esc(c.next_event.title)}</b><br><span>in</span> <b>${c.next_event.minutes_until} min</b>`:"<br><span>no upcoming event</span>")
+      :"—";
+    const cp=s.coach||{};
+    document.getElementById("coachPlan").innerHTML=
+      `<span>workout</span> <b>${esc(cp.workout?.suggestion||"—")}</b><br><span>why</span> <b>${esc(cp.workout?.reason||"")}</b>`+
+      (cp.bedtime?.suggested_bedtime?`<br><span>bedtime est.</span> <b>${esc(cp.bedtime.suggested_bedtime.slice(11,16))}</b>`:`<br><span>bedtime est.</span> <b>—</b>`);
+    const sr=s.self_report||{};
+    document.getElementById("srShow").innerHTML=(sr.sore||sr.fatigue!=="unknown"||sr.feeling)
+      ?`sore <b>${!!sr.sore}</b> · fatigue <b>${esc(sr.fatigue)}</b> · feeling <b>${sr.feeling?'"'+esc(sr.feeling)+'"':"—"}</b><br><span>provenance</span> <b>${esc(sr.provenance||"")}</b>`
+      :"no self-report";
+    renderGuards(s);
+    const pf=s.profile||{};
+    document.querySelectorAll("[data-lvl]").forEach(b=>b.classList.toggle("active",pf.intervention_level===b.dataset.lvl));
+    document.querySelectorAll("[data-vst]").forEach(b=>b.classList.toggle("active",pf.voice_style===b.dataset.vst));
+    document.querySelectorAll("[data-act]").forEach(b=>b.classList.toggle("active",s.activity?.value===b.dataset.act));
+    document.getElementById("killBtn").textContent="KILL SWITCH: "+(s.kill_switch?"ON":"off");
+    document.getElementById("killBtn").classList.toggle("warn-on",!!s.kill_switch);
+    document.getElementById("log").innerHTML=(s.recent_decisions||[])
+      .map(x=>`<div class="logline">${x.created_at.slice(11,19)} <b class="${x.action}">${x.action}</b> [${esc(x.trigger||"")}] ${esc(x.reason_code)}</div>`).join("");
+    document.getElementById("clock").textContent=new Date().toLocaleTimeString();
+  }catch(e){/* keep polling */}
 }
-tick(); setInterval(tick, 1000);
+tick();setInterval(tick,1000);
 </script>
 </body>
 </html>

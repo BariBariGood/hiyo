@@ -180,3 +180,17 @@ def test_webhook_persists_payload_survives_fetch_failure(client, monkeypatch, tm
     assert saved["call"]["id"] == "c-x"
     assert svc.store.state.active_call_id is None  # cleared despite fetch failing
     assert svc.store.state.spend_minutes_today == pytest.approx(1.0)
+
+
+def test_audit_path_env_override(monkeypatch, tmp_path):
+    import importlib
+    from hiyo import audit
+    target = tmp_path / "iso.jsonl"
+    monkeypatch.setenv("HIYO_AUDIT_PATH", str(target))
+    importlib.reload(audit)
+    try:
+        audit.record("ping", {"x": 1})
+        assert target.exists() and '"ping"' in target.read_text()
+    finally:
+        monkeypatch.undo()
+        importlib.reload(audit)

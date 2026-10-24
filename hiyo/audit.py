@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any
 
 _lock = threading.Lock()
-_path = Path("runtime/decisions.jsonl")
+import os as _os
+_path = Path(_os.environ.get("HIYO_AUDIT_PATH", "runtime/decisions.jsonl"))
 
 _E164 = re.compile(r"\+\d{7,15}")
 _SECRET_KEYS = re.compile(r"token|secret|api_key|authorization|password", re.I)
