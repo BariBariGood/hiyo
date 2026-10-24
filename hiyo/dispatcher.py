@@ -90,7 +90,7 @@ def build_assistant(brief: dict[str, str], public_base_url: str, webhook_secret:
         "firstMessage": brief["first_message"],
         "model": {
             "provider": "openai",
-            "model": "gpt-4o",
+            "model": os.environ.get("HIYO_CALL_MODEL", "gpt-4.1"),
             "maxTokens": 90,
             "messages": [{"role": "system", "content": brief["system"]}],
             "tools": [
