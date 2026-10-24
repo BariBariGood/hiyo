@@ -1,0 +1,14 @@
+{
+  "user_id": "owner-demo",
+  "opted_in": true,
+  "baseline_bpm": 70,
+  "delta_bpm": 15,
+  "window_seconds": 45,
+  "min_samples": 20,
+  "cooldown_minutes": 30,
+  "daily_call_cap": 2,
+  "spend_minutes_cap": 10.0,
+  "quiet_hours_start": "21:00",
+  "quiet_hours_end": "09:00",
+  "timezone": "America/Los_Angeles"
+}

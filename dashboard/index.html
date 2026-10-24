@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>hiyo — operator dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0b0e14; --card:#151a24; --fg:#e8ecf4; --dim:#8b93a5; --green:#2ecc71; --red:#ff4d5e; --amber:#ffb020; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,"SF Mono",Menlo,monospace; }
+  header { display:flex; align-items:center; gap:16px; padding:18px 28px; }
+  h1 { font-size:22px; margin:0; letter-spacing:1px; }
+  .badge { font-size:26px; font-weight:800; padding:6px 22px; border-radius:8px; letter-spacing:2px; }
+  .badge.live { background:#0f5132; color:var(--green); }
+  .badge.sim { background:#5a1620; color:var(--red); animation:pulse 1.6s infinite; }
+  @keyframes pulse { 50% { opacity:.65; } }
+  main { display:grid; grid-template-columns:1.1fr 1fr 1fr; gap:16px; padding:0 28px 28px; }
+  .card { background:var(--card); border-radius:12px; padding:18px 20px; }
+  .card h2 { margin:0 0 10px; font-size:13px; color:var(--dim); text-transform:uppercase; letter-spacing:1.5px; }
+  .bpm { font-size:96px; font-weight:800; line-height:1; }
+  .bpm small { font-size:20px; color:var(--dim); font-weight:400; }
+  .sub { color:var(--dim); font-size:14px; margin-top:8px; }
+  .decision { font-size:34px; font-weight:800; }
+  .decision.CALL { color:var(--green); } .decision.IGNORE { color:var(--dim); }
+  .reason { color:var(--amber); font-size:15px; margin-top:6px; }
+  .plain { color:var(--fg); font-size:14px; margin-top:6px; line-height:1.5; }
+  ul.guards { list-style:none; padding:0; margin:0; font-size:14px; }
+  ul.guards li { padding:5px 0; border-bottom:1px solid #232a38; }
+  ul.guards li::before { content:"● "; }
+  ul.guards li.ok::before { color:var(--green); }
+  ul.guards li.fail::before { color:var(--red); }
+  button { background:#232a38; color:var(--fg); border:1px solid #333d52; border-radius:8px; padding:8px 14px; font-size:14px; cursor:pointer; margin:3px 4px 3px 0; font-family:inherit; }
+  button:hover { background:#2c3648; }
+  button.danger { background:#5a1620; border-color:#7a2233; }
+  button.active { outline:2px solid var(--amber); }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  td,th { text-align:left; padding:4px 6px; border-bottom:1px solid #232a38; color:var(--dim); }
+  td:first-child { color:var(--fg); }
+  .log { max-height:220px; overflow:auto; font-size:12px; color:var(--dim); }
+  .log div { padding:3px 0; border-bottom:1px solid #1c2230; }
+  .kv { font-size:14px; line-height:1.9; }
+  .kv b { color:var(--fg); } .kv span { color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>hiyo</h1>
+  <div id="srcBadge" class="badge sim">—</div>
+  <div id="clock" class="sub"></div>
+</header>
+<main>
+  <section class="card">
+    <h2>Heart rate</h2>
+    <div class="bpm"><span id="bpm">—</span><small> bpm</small></div>
+    <div class="sub" id="sampleMeta">no samples yet</div>
+    <div class="sub" id="windowMeta"></div>
+  </section>
+
+  <section class="card">
+    <h2>Decision</h2>
+    <div id="decision" class="decision">—</div>
+    <div id="reason" class="reason"></div>
+    <div id="plain" class="plain"></div>
+    <div class="sub" id="callMeta"></div>
+  </section>
+
+  <section class="card">
+    <h2>Calendar</h2>
+    <div class="kv" id="calInfo">—</div>
+  </section>
+
+  <section class="card">
+    <h2>Guards</h2>
+    <ul class="guards" id="guards"></ul>
+  </section>
+
+  <section class="card">
+    <h2>Controls</h2>
+    <div>
+      <b>Scenario:</b><br>
+      <button data-scn="resting_normal">resting_normal</button>
+      <button data-scn="elevated_resting">elevated_resting</button>
+      <button data-scn="elevated_moving">elevated_moving</button>
+    </div>
+    <div style="margin-top:10px">
+      <b>Activity (manual demo flag):</b><br>
+      <button data-act="seated">seated</button>
+      <button data-act="moving">moving</button>
+      <button data-act="unknown">unknown</button>
+    </div>
+    <div style="margin-top:10px">
+      <button id="killBtn" class="danger">KILL SWITCH: ?</button>
+      <button id="endCallBtn">end call</button>
+      <button id="resetBtn">demo reset</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Recent decisions</h2>
+    <div class="log" id="log"></div>
+  </section>
+</main>
+<script>
+const OP = window.HIYO_OP_TOKEN || "";  // set via console if HIYO_OPERATOR_TOKEN is enabled
+async function post(path, body){
+  const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json", "X-Operator-Token": OP}, body: JSON.stringify(body||{})});
+  if(!r.ok) console.warn(path, r.status);
+  return r.json().catch(()=>({}));
+}
+document.querySelectorAll("[data-scn]").forEach(b=>b.onclick=()=>post("/api/scenario",{name:b.dataset.scn}));
+document.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>post("/api/activity",{activity:b.dataset.act}));
+document.getElementById("killBtn").onclick=()=>post("/api/kill",{on:!last.kill_switch});
+document.getElementById("endCallBtn").onclick=()=>post("/api/call/end",{});
+document.getElementById("resetBtn").onclick=()=>post("/api/demo/reset",{});
+let last = {};
+function esc(s){ return String(s??"").replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+async function tick(){
+  try{
+    const s = await (await fetch("/api/status")).json();
+    last = s;
+    const badge = document.getElementById("srcBadge");
+    const sim = s.sample ? s.sample.simulated : true;
+    badge.textContent = sim ? "SIMULATED" : "REAL";
+    badge.className = "badge " + (sim ? "sim" : "live");
+    document.getElementById("bpm").textContent = s.sample?.bpm ?? "—";
+    document.getElementById("sampleMeta").textContent = s.sample
+      ? `${s.sample.source} · age ${s.sample.age_s}s · sensor ${s.sensor_status} · mode ${s.sensor_mode}`
+      : `sensor ${s.sensor_status} · mode ${s.sensor_mode}`;
+    document.getElementById("windowMeta").textContent = s.window
+      ? `window: ${s.window.valid_count} samples · median ${s.window.median_bpm??"—"} · threshold ${s.window.threshold_bpm??"—"} · ${Math.round((s.window.fraction_above||0)*100)}% above`
+      : "";
+    const d = s.decision;
+    const dEl = document.getElementById("decision");
+    dEl.textContent = d ? d.action : "—";
+    dEl.className = "decision " + (d?.action||"");
+    document.getElementById("reason").textContent = d ? d.reason_code : "";
+    document.getElementById("plain").textContent = d ? d.plain_english : "";
+    document.getElementById("callMeta").textContent =
+      `dispatcher ${s.dispatcher} · call ${s.call.active_call_id ?? "none"} · today ${s.call.calls_today}` +
+      (s.call.last_dispatch_error ? ` · last error: ${s.call.last_dispatch_error}` : "");
+    const c = s.calendar;
+    document.getElementById("calInfo").innerHTML = c
+      ? `<span>source</span> <b>${esc(c.source)}</b> · <span>ok</span> <b>${c.ok}</b> · <span>busy</span> <b>${c.busy_now}</b>` +
+        (c.conflicting ? ` · <b style="color:var(--red)">CONFLICTING</b>` : "") +
+        (c.next_event ? `<br><span>next</span> <b>${esc(c.next_event.title)}</b><br><span>in</span> <b>${c.next_event.minutes_until} min</b>` : "<br><span>no upcoming event</span>")
+      : "—";
+    document.getElementById("guards").innerHTML = (s.guards||[])
+      .map(g=>`<li class="${g.pass?"ok":"fail"}">${esc(g.guard)}</li>`).join("");
+    document.getElementById("killBtn").textContent = "KILL SWITCH: " + (s.kill_switch ? "ON" : "off");
+    document.getElementById("log").innerHTML = (s.recent_decisions||[])
+      .map(d=>`<div>${d.created_at.slice(11,19)} <b>${d.action}</b> ${esc(d.reason_code)}</div>`).join("");
+  }catch(e){ /* keep polling */ }
+}
+tick(); setInterval(tick, 1000);
+</script>
+</body>
+</html>

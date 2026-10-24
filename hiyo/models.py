@@ -1,0 +1,142 @@
+"""Pydantic contracts for hiyo."""
+
+from __future__ import annotations
+
+import enum
+import uuid
+from datetime import datetime, timezone
+
+from pydantic import BaseModel, Field
+
+LA_TZ = "America/Los_Angeles"
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Action(str, enum.Enum):
+    IGNORE = "IGNORE"
+    SILENT_ACTION = "SILENT_ACTION"  # reserved, unused in P0
+    NUDGE = "NUDGE"                  # reserved, unused in P0
+    CALL = "CALL"
+
+
+class SourceMode(str, enum.Enum):
+    LIVE = "live"
+    SIMULATED = "simulated"
+
+
+class SensorSample(BaseModel):
+    """Normalized heart-rate sample (see design brief §7.2)."""
+
+    event_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    source: str = "whoop_ble"
+    device_model: str = "whoop_5"
+    observed_at: datetime
+    received_at: datetime = Field(default_factory=utcnow)
+    bpm: int | None = None
+    rr_ms: list[float] = Field(default_factory=list)
+    contact_detected: bool | None = None
+    motion_state: str = "unknown"
+    simulated: bool = False
+
+
+class WindowStats(BaseModel):
+    """Aggregate view of the rolling sample window consumed by policy."""
+
+    now: datetime
+    valid_count: int = 0
+    median_bpm: float | None = None
+    newest_age_s: float | None = None
+    stale: bool = True
+    fraction_above_threshold: float = 0.0
+    threshold_bpm: float | None = None
+    sustained_elevation: bool = False
+    sensor_unavailable: bool = False
+    simulated: bool = False
+
+
+class CalendarEvent(BaseModel):
+    uid: str = ""
+    title: str = ""
+    start: datetime
+    end: datetime | None = None
+    all_day: bool = False
+    transparent: bool = False  # TRANSPARENT == "free" in iCal
+    status: str = "CONFIRMED"
+
+    def is_busy(self) -> bool:
+        return (
+            not self.all_day
+            and not self.transparent
+            and self.status.upper() != "CANCELLED"
+        )
+
+
+class ContextSnapshot(BaseModel):
+    """Minimal decision context (see design brief §7.3)."""
+
+    now: datetime
+    timezone: str = LA_TZ
+    calendar_ok: bool = False
+    calendar_fetched_at: datetime | None = None
+    calendar_source: str = "fixture"  # "live" | "fixture"
+    busy_now: bool = False
+    conflicting_events: bool = False
+    next_event: CalendarEvent | None = None
+    opportunity_event: CalendarEvent | None = None
+    upcoming_events: list[CalendarEvent] = Field(default_factory=list)
+    activity: str = "unknown"  # seated | moving | unknown
+    activity_provenance: str | None = None
+
+
+class Profile(BaseModel):
+    user_id: str = "owner-demo"
+    opted_in: bool = True
+    baseline_bpm: int = 70
+    delta_bpm: int = 15
+    window_seconds: int = 45
+    min_samples: int = 20
+    cooldown_minutes: int = 30
+    daily_call_cap: int = 2
+    spend_minutes_cap: float = 10.0
+    quiet_hours_start: str = "21:00"
+    quiet_hours_end: str = "09:00"
+    timezone: str = LA_TZ
+
+
+class Decision(BaseModel):
+    action: Action
+    reason_code: str
+    plain_english: str
+    candidate_id: str | None = None
+    source_mode: SourceMode
+    simulated_input: bool
+    confidence_label: str = "demo_heuristic_not_clinically_validated"
+    created_at: datetime
+    expires_at: datetime
+
+
+REASON_CODES = {
+    "NO_CONSENT",
+    "RECIPIENT_NOT_VERIFIED",
+    "KILL_SWITCH",
+    "INSUFFICIENT_DATA",
+    "SENSOR_UNAVAILABLE",
+    "QUIET_HOURS",
+    "CALENDAR_UNAVAILABLE",
+    "CALENDAR_BUSY",
+    "CONTEXT_UNCERTAIN",
+    "ALREADY_IN_CALL",
+    "COOLDOWN",
+    "DAILY_CAP",
+    "BUDGET_CAP",
+    "POSSIBLE_EXERTION",
+    "ACTIVITY_UNKNOWN",
+    "NO_CANDIDATE",
+    "NO_OPPORTUNITY",
+    "DUPLICATE_CANDIDATE",
+    "RESTING_SIGNAL_NEAR_RELEVANT_EVENT",
+    "ADVISOR_DECLINED",
+}

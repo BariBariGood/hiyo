@@ -1,0 +1,14 @@
+{
+  "source": "fixture",
+  "events": [
+    {
+      "uid": "demo-mock-interview-1",
+      "title": "Mock interview with Sam",
+      "start_in_minutes": 20,
+      "duration_minutes": 45,
+      "all_day": false,
+      "transparent": false,
+      "status": "CONFIRMED"
+    }
+  ]
+}
