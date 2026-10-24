@@ -66,10 +66,10 @@ class DryRunDispatcher:
 
 
 def voice_config() -> dict:
-    """ElevenLabs "Jessica" on Flash v2.5 by default; override via env."""
+    """ElevenLabs custom "Baymax" voice on Flash v2.5 by default; override via env."""
     voice = {
         "provider": os.environ.get("VAPI_VOICE_PROVIDER", "11labs"),
-        "voiceId": os.environ.get("VAPI_VOICE_ID", "cgSgspJ2msm6clMCkdW9"),
+        "voiceId": os.environ.get("VAPI_VOICE_ID", "Bso1TGGDyQftAIQje0JM"),
     }
     model = os.environ.get("VAPI_VOICE_MODEL", "eleven_flash_v2_5")
     if model:
