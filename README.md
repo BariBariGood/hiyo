@@ -90,9 +90,9 @@ Voice and SMS styles are set independently: concise and action-oriented, warm wi
 
 Hiyo provides fitness coaching and everyday emotional support, without medical diagnosis or treatment. A check-in about a persistent pattern expresses concern; it does not establish a medical condition.
 
-Calls require explicit opt-in. Calendar changes require separate confirmation. Users should be able to review, correct, and delete personal memory.
+Calls require explicit opt-in. Hiyo reads your calendar; it never edits it. Users should be able to review, correct, and delete personal memory.
 
-Real-time Stress Score and strap vibration control are outside the initial WHOOP API integration scope. WHOOP's terms for using its data with AI remain an open dependency to resolve before connecting real user data.
+WHOOP's own Stress Score and strap vibration control are not available through WHOOP's public API; Hiyo's live stress estimate is its own approximation, not WHOOP's score. WHOOP's terms for using its data with AI remain an open dependency to resolve before connecting real user data.
 
 ## Project Status
 
@@ -105,13 +105,18 @@ The Soul prototype adds personal-baseline trend checks, opt-in SQLite memory, mu
 - Real outbound AI phone calls via Vapi on an imported Twilio number — ElevenLabs voice (owner's own account), OpenAI gpt-4.1 (owner's key), Deepgram nova-3 transcription (via Vapi), and Minji's three coach personalities (gentle / focused / analytical) plus selectable voice styles.
 - Mid-call tools: `get_next_events` (reads the calendar) and `remember_preference` (whitelisted keys only).
 - Escalation ladder: Nothing → Nudge (real SMS via Textbelt; replies OK / CALL / STOP are signature-verified and owner-checked) → Call (one guarded escalation).
+- Localhost onboarding web app (`web/`, Next.js): WHOOP account sign-in (official OAuth), phone verification by SMS code (Twilio Verify), coach preferences, and a first call that summarizes the latest WHOOP Recovery and Sleep records.
 - Deterministic safety guard ladder: consent, owner-only allowlist, kill switch, quiet/allowed hours, calendar busy or unavailable fails closed, cooldown, daily caps, idempotency, no auto-redial, no emergency dialing.
 - Call recording + timestamped transcript + latency analysis (`scripts/call_report.py`).
 - Baymax-inspired operator dashboard (fan tribute, not affiliated).
 - Live stress estimate (0–3) from BLE heart rate + RR intervals — display only, never feeds call decisions.
 - **Live WHOOP heart rate** over the standard BLE Heart Rate Service (0x180D / 0x2A37) — verified 2026-10-24 on our WHOOP (MG, `WHOOP MGC0103306`) on a MacBook Pro: 40/40 one-second polls were fresh `whoop_ble` samples (age < 1 s, 73–106 bpm). Standard heart-rate profile only; WHOOP's proprietary service is never used.
 - Google Calendar read via secret iCal link (read-only).
-- 224 automated tests, including user-scheduled morning/evening routine calls and concise feedback branches.
+- 259 automated tests, including user-scheduled morning/evening routine calls and concise feedback branches.
+
+**Built and unit-tested, not yet exercised live:**
+
+- Texting `CALL` at any time requests an immediate call (consent, quiet hours, cooldown and daily cap still apply).
 
 **Simulated / fixtures (always labeled in the UI and logs):**
 
@@ -120,12 +125,11 @@ The Soul prototype adds personal-baseline trend checks, opt-in SQLite memory, mu
 **Not built / out of scope:**
 
 - WHOOP strap vibration (no public API).
-- WHOOP cloud API data (Recovery / Sleep / Strain; planned).
 - Twilio SMS (US A2P 10DLC registration takes 10–15 days; trial accounts can't register — Textbelt covers SMS instead).
 - Multi-day follow-ups are not yet wired into the live loop (Minji's Soul engine has them, tested offline — see [docs/SOUL.md](docs/SOUL.md)).
 - Multi-user / production hardening.
 
-Stack: Python/FastAPI, Vapi, Twilio (voice), Textbelt (SMS), ElevenLabs, OpenAI, Deepgram, cloudflared tunnel.
+Stack: Python/FastAPI, Next.js (onboarding), WHOOP BLE + WHOOP API, Vapi, Twilio (voice + Verify), Textbelt (SMS), ElevenLabs, OpenAI, Deepgram, cloudflared tunnel.
 
 See [docs/DEMO.md](docs/DEMO.md) for the 3-minute judge run-of-show, [BUILD_LOG.md](BUILD_LOG.md) for recorded verification, and [docs/SOUL.md](docs/SOUL.md) for the Soul spec.
 
