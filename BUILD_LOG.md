@@ -105,3 +105,15 @@
   runtime/state.json (dispatched_candidate_ids) so the running server shows
   DUPLICATE_CANDIDATE; /api/demo/reset clears it for a live demo.
 - HIYO_STATE_PATH env added so a second instance can run isolated state.
+
+## Stress estimate (display only)
+
+- Method: hiyo reimplementation of WHOOP patent application **US 2024/0188865 A1**
+  ("Dynamic stress scoring with weighted contributions of cardiac parameters").
+  Weighted blend of an HR sigmoid and an HRV z-score → 0–3.
+- Ours, not the patent's: sigmoid constants (3/(1+e^-7.87(x-0.2)) calibrated to the
+  patent's worked example rest60/max190/HR100≈2.1), weight curve (0.3 + 0.4/(1+e^((hr-rest-10)/5))),
+  population HRV default (mu=ln42, sigma=0.5, floor 0.15), RR cleaning rules
+  (300–2000ms, ±25% of expected 60000/bpm, ±20% successive-diff), 30-RR minimum.
+- No motion sensor: patent's f(motion) correction maps to our explicit activity
+  flag (moving/exercise → not scored). Display only — not in policy or prompts.

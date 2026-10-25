@@ -104,6 +104,7 @@ The Soul prototype adds personal-baseline trend checks, opt-in SQLite memory, mu
 - Deterministic safety guard ladder: consent, owner-only allowlist, kill switch, quiet/allowed hours, calendar busy or unavailable fails closed, cooldown, daily caps, idempotency, no auto-redial, no emergency dialing.
 - Call recording + timestamped transcript + latency analysis (`scripts/call_report.py`).
 - Baymax-inspired operator dashboard (fan tribute, not affiliated).
+- Live stress estimate (0–3) from BLE heart rate + RR intervals — display only, never feeds call decisions.
 - **Live WHOOP heart rate** over the standard BLE Heart Rate Service (0x180D / 0x2A37) — verified 2026-10-24 on our WHOOP (MG, `WHOOP MGC0103306`) on a MacBook Pro: 40/40 one-second polls were fresh `whoop_ble` samples (age < 1 s, 73–106 bpm). Standard heart-rate profile only; WHOOP's proprietary service is never used.
 - Google Calendar read via secret iCal link (read-only).
 - 224 automated tests, including user-scheduled morning/evening routine calls and concise feedback branches.

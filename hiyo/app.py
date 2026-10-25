@@ -205,6 +205,7 @@ async def status(service: Service = Depends(svc)):
                 "bpm": sample.bpm,
                 "source": sample.source,
                 "simulated": sample.simulated,
+                "rr_ms": sample.rr_ms,
                 "age_s": round((now - sample.observed_at).total_seconds(), 1),
             }
             if sample
@@ -269,6 +270,7 @@ async def status(service: Service = Depends(svc)):
         "self_report": {**service.self_report, "provenance": service.self_report_provenance},
         "coach": service.coach_plan(),
         "ladder": service.ladder_status(),
+        "stress": service.stress_estimate(),
         "onboarding": _onboarding_status(),
         "guards_by_trigger": {t: guard_report(service, t) for t in ("morning_checkin", "extra_checkin")},
         "decisions_by_trigger": {t: d.model_dump(mode="json") for t, d in service.latest_by_trigger.items()},

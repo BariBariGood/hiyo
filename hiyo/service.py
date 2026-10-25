@@ -17,6 +17,7 @@ from .soul import coach as soul_coach
 from .soul.memory import LONG_TERM_KEYS, MemoryStore, overlay_profile
 from .dispatcher import Dispatcher, make_dispatcher
 from .nudge import generate_nudge_text, make_nudge_sender
+from .stress import StressEstimator
 from .models import (
     Action,
     ContextSnapshot,
@@ -61,6 +62,8 @@ class Service:
         self.owner_phone = owner_phone or os.environ.get("OWNER_PHONE_NUMBER")
         self.dispatcher = dispatcher or make_dispatcher(self.owner_phone)
         self.nudge_sender = make_nudge_sender(self.owner_phone)
+        self.stress = StressEstimator()
+        self._stress_cache: tuple[float, dict] | None = None
         self.nudge_channel = os.environ.get("NUDGE_CHANNEL", "dryrun").lower()
         self.dispatcher_mode = "vapi" if os.environ.get("DISPATCHER", "").lower() == "vapi" else "dryrun"
         self.window = window or SampleWindow(window_seconds=profile.window_seconds)
@@ -118,6 +121,8 @@ class Service:
         res = self.window.add(sample, utcnow())
         if res == "ok":
             self.latest_sample = sample
+            self.stress.add(sample, utcnow())
+            self._stress_cache = None
         return res
 
     async def set_sensor_mode(self, mode: str) -> None:
@@ -126,6 +131,8 @@ class Service:
         if mode == self.sensor_mode:
             return
         self.sensor_mode = mode
+        self.stress.clear()
+        self._stress_cache = None
         if mode == "ble":
             self.sensor_status = "unavailable"
             address = os.environ.get("WHOOP_ADDR")
@@ -236,6 +243,15 @@ class Service:
         else:
             self.last_dispatch_error = result.error
             audit.record("nudge_failed", {"candidate_id": decision.candidate_id, "error": result.error})
+
+    def stress_estimate(self) -> dict:
+        now = utcnow()
+        if self._stress_cache and now.timestamp() - self._stress_cache[0] < 5:
+            return self._stress_cache[1]
+        est = self.stress.estimate(now, self.profile.baseline_bpm,
+                                 self.profile.max_hr_bpm, self.activity)
+        self._stress_cache = (now.timestamp(), est)
+        return est
 
     def ack_nudge(self) -> None:
         self.store.ack_nudge()
@@ -393,6 +409,8 @@ class Service:
         self.latest_by_trigger = {}
         self.last_dispatch_error = None
         self.self_report = {"sore": False, "fatigue": "unknown", "feeling": None}
+        self.stress.clear()
+        self._stress_cache = None
         self.self_report_provenance = None
         audit.record("demo_reset", {})
 

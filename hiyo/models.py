@@ -127,6 +127,7 @@ class Profile(BaseModel):
     nudge_cooldown_minutes: int = 15
     nudge_escalate_minutes: int = 8
     messages_per_week: int = 7
+    max_hr_bpm: int = 190
 
 
 class Decision(BaseModel):

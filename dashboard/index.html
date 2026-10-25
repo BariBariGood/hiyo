@@ -158,6 +158,15 @@ footer{max-width:1500px;margin:16px auto 4px;display:flex;justify-content:space-
   </section>
 
   <section class="card">
+    <h2>Stress estimate</h2>
+    <div id="stressBig" style="font-size:56px;font-weight:900;letter-spacing:-.02em">—</div>
+    <div id="stressZone" class="chip" style="display:inline-block;margin:6px 0"></div>
+    <div class="kv" id="stressMeta" style="font-size:13px;color:var(--dim);font-weight:600"></div>
+    <div id="stressSim" style="display:none;margin-top:6px" class="chip">SIMULATED</div>
+    <div class="hint" style="font-size:11.5px;color:var(--faint);margin-top:10px">hiyo estimate (method from WHOOP patent) · not WHOOP's score · not medical</div>
+  </section>
+
+  <section class="card">
     <h2>Call status</h2>
     <div class="kv" id="callMeta">—</div>
   </section>
@@ -304,6 +313,16 @@ async function tick(){
     document.getElementById("killBtn").classList.toggle("warn-on",!!s.kill_switch);
     document.getElementById("log").innerHTML=(s.recent_decisions||[])
       .map(x=>`<div class="logline">${x.created_at.slice(11,19)} <b class="${x.action}">${x.action}</b> [${esc(x.trigger||"")}] ${esc(x.reason_code)}</div>`).join("");
+    const ST=s.stress||{};
+    const sb=document.getElementById("stressBig");
+    sb.textContent=ST.score==null?"—":ST.score.toFixed(1);
+    const zc=document.getElementById("stressZone");
+    zc.textContent=ST.zone||"no score";
+    zc.style.background=ST.zone==="high"?"var(--red)":ST.zone==="medium"?"#f0a020":"var(--teal)";
+    zc.style.color="#fff";zc.style.borderColor="transparent";
+    document.getElementById("stressMeta").textContent=
+      ST.reason||(ST.hrv_available?`HRV ${ST.rmssd_ms} ms · HR ${ST.hr_mean} · baseline: ${ST.baseline}`:`HR ${ST.hr_mean||"—"} · HRV unavailable`);
+    document.getElementById("stressSim").style.display=ST.simulated?"inline-block":"none";
     const L=s.ladder||{};const rungs=[
       ["nothing","Nothing","I will not interrupt you."],
       ["nudge","Nudge","iMessage check-in"],
