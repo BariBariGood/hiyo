@@ -7,6 +7,7 @@ import json
 import re
 import logging
 import os
+import time
 import httpx
 import hmac
 from contextlib import asynccontextmanager
@@ -426,13 +427,57 @@ def _save_verified_phone(phone: str) -> None:
     tmp.replace(path)
 
 
+_vapi_status_cache: tuple[str, float, str | None] | None = None
+
+
+async def _vapi_call_status(call_id: str) -> str | None:
+    global _vapi_status_cache
+    if (_vapi_status_cache and _vapi_status_cache[0] == call_id
+            and time.time() - _vapi_status_cache[1] < 5):
+        return _vapi_status_cache[2]
+    key = os.environ.get("VAPI_API_KEY")
+    if not key:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=5.0,
+                                     headers={"User-Agent": "hiyo/0.1"}) as c:
+            r = await c.get(f"https://api.vapi.ai/call/{call_id}",
+                            headers={"Authorization": f"Bearer {key}"})
+            status = r.json().get("status")
+    except Exception:
+        return None
+    _vapi_status_cache = (call_id, time.time(), status)
+    return status
+
+
+async def _reconcile_first_call(service: Service) -> dict:
+    """If the end-of-call webhook never arrived (e.g. tunnel down), ask Vapi."""
+    path = Path("runtime/onboarding_pending.json")
+    try:
+        record = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    if record.get("first_call_status") == "dialing" and record.get("first_call_id"):
+        status = await _vapi_call_status(record["first_call_id"])
+        if status == "ended":
+            record["first_call_status"] = "completed"
+            _write_onboarding_record(path, record)
+            if service.store.state.active_call_id == record["first_call_id"]:
+                try:
+                    service.end_call()
+                except Exception:
+                    pass
+    return record
+
+
 @app.get("/api/onboarding/context")
 async def onboarding_context(service: Service = Depends(svc)):
-    pending = {}
-    try:
-        pending = json.loads(Path("runtime/onboarding_pending.json").read_text())
-    except (OSError, ValueError):
-        pass
+    pending = await _reconcile_first_call(service)
+    if not pending:
+        try:
+            pending = json.loads(Path("runtime/onboarding_pending.json").read_text())
+        except (OSError, ValueError):
+            pass
     phone = pending.get("phone") or ""
     return {"preferred_name": service.profile.preferred_name,
             "fitness_goal": service.profile.fitness_goal,
@@ -691,7 +736,7 @@ async def first_call(request: Request, service: Service = Depends(svc)):
             "The next contact time is the planned time, subject to calendar availability. "
             "Ask only one question at a time. Do not make a medical claim.\n"
             "The first message already gives the introduction and brief summary. Do not repeat them when the user replies. "
-            "Keep replies to one or two short sentences, and answer the user's question directly.\n"
+            "Keep replies under 25 words — one or two short sentences — and answer the user's question directly.\n"
             f"NEXT CONTACT: {next_contact}\nWHOOP FACTS:\n" + "\n".join(facts) + "\n"
         )
         first_rules += (f"SELECTED COACH: {service.profile.personality}. {PERSONAS[service.profile.personality]['behavior']}\n"
@@ -702,9 +747,16 @@ async def first_call(request: Request, service: Service = Depends(svc)):
         else:
             first_rules += "CALENDAR: Not connected or not available; do not mention specific events.\n"
         name = sanitize_untrusted(service.profile.preferred_name, 40) or "there"
-        initial_summary = " ".join(spoken_facts[:2]) or "Your WHOOP is connected, but scored data isn't available yet."
+        rec = metrics.get("recovery", {}).get("recovery_score")
+        slp = metrics.get("sleep", {}).get("sleep_performance_percentage")
+        if isinstance(rec, (int, float)):
+            one_fact = f"Your latest recovery is {round(rec)} percent. "
+        elif isinstance(slp, (int, float)):
+            one_fact = f"Your latest sleep performance is {round(slp)} percent. "
+        else:
+            one_fact = ""
         brief = {"system": CORE + "\n" + first_rules,
-                 "first_message": f"Hi {name}, great to meet you. I'm Hiyo, your AI fitness coach and wellness companion. I'll help you plan training, sleep, and recovery around your life. {initial_summary} What would you like to ask me?"}
+                 "first_message": f"Hi {name}, I'm Hi-yo, your AI coach. {one_fact}Want a quick plan for today?"}
         record["first_call_status"] = "dispatching"
         _write_onboarding_record(path, record)
         service.store.record_dispatch_attempt("first-call", now)
@@ -772,7 +824,9 @@ async def start_phone_verification(request: Request):
     except httpx.HTTPError:
         raise HTTPException(502, "phone verification service is unavailable")
     if response.status_code >= 400:
-        raise HTTPException(502, "phone verification could not be started")
+        twilio_code = (response.json() if response.headers.get("content-type", "").startswith("application/json") else {}).get("code")
+        log.warning("Twilio Verify start failed: HTTP %s, Twilio code %s", response.status_code, twilio_code)
+        raise HTTPException(502, f"phone verification could not be started (Twilio error {twilio_code})")
     recent.parent.mkdir(parents=True, exist_ok=True)
     _write_onboarding_record(recent, {"sent_at": utcnow().isoformat()})
     return {"verified": False, "configured": True, "status": response.json().get("status", "pending")}

@@ -149,6 +149,18 @@ export default function Wizard() {
   const title = ["Connect WHOOP", "Make Hiyo yours", "Meet your coach"][stage];
   const timestamp = whoop.checked_at ? new Date(whoop.checked_at).toLocaleString() : "";
   const callAttempted = ["dispatching", "dialing", "preview", "completed", "failed"].includes(callStatus);
+
+  useEffect(() => {
+    if (!["dispatching", "dialing"].includes(callStatus)) return;
+    let live = true;
+    const t = setInterval(async () => {
+      try {
+        const ctx = await api("/api/onboarding/context");
+        if (live && ctx.first_call_status) setCallStatus(ctx.first_call_status);
+      } catch { /* keep polling */ }
+    }, 3000);
+    return () => { live = false; clearInterval(t); };
+  }, [callStatus]);
   const hours = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`);
 
   return <>
@@ -218,6 +230,11 @@ export default function Wizard() {
         <dl className="setup-summary"><div><dt>WHOOP</dt><dd>{whoop.connected ? "Connected" : "Check connection"}</dd></div><div><dt>Google Calendar</dt><dd>{calendar.connected ? "Connected" : "Not connected"}</dd></div>
           <div><dt>Next calls</dt><dd>{draft.calls ? `${draft.weekdays.map((d) => DAY_NAMES[d]).join(", ")} · ${draft.call_time}` : "First call only"}</dd></div>
           <div><dt>Messages</dt><dd>{draft.messages ? `Up to ${draft.messages} per week` : "Off"}</dd></div></dl>
+        {callStatus === "completed" && <div role="status">
+          <h2>You're all set</h2>
+          <p className="hint">Your first call is done. Hiyo will check in {draft.calls ? `on ${draft.weekdays.map((d) => DAY_NAMES[d]).join(", ")} at ${draft.call_time}` : "as scheduled"}.</p>
+          <a className="pill primary wide" href="http://127.0.0.1:8787/" style={{ textDecoration: "none", display: "inline-flex" }}>Open dashboard</a>
+        </div>}
         {callStatus === "preview" && <p role="status">This is a preview. No phone call was placed.</p>}
         {callStatus === "failed" && <p role="alert">Please check the call status with the Hiyo owner before trying again.</p>}
         {!callAttempted && <><button className="pill primary wide" disabled={Boolean(busy) || !whoop.connected} onClick={startCall}>{busy === "call" ? "Preparing your call…" : "Start first call"}</button>
