@@ -11,7 +11,7 @@ works there. Without any accounts it still runs fully offline
 
 ## 0. Prerequisites
 
-- macOS with Bluetooth, Python 3.11+, [`uv`](https://docs.astral.sh/uv/), Node 20+ (for `web/`)
+- macOS with Bluetooth, Python 3.12+, [`uv`](https://docs.astral.sh/uv/), Node 20+ (for `web/`)
 - `cloudflared` (`brew install cloudflared`) — only for real calls/SMS replies
 
 ```bash
@@ -75,8 +75,9 @@ Restart the server after editing `.env`.
    uv run python scripts/call_report.py latest --fetch   # transcript, latency
    ```
 
-Twilio is **voice only**: SMS from an unregistered US number fails with error
-30034 (A2P 10DLC registration takes days to weeks). Use Textbelt for SMS.
+Regular coaching SMS uses Textbelt: SMS from an unregistered US Twilio number
+fails with error 30034 (A2P 10DLC registration takes days to weeks). Onboarding
+uses the separate Twilio Verify service for one-time phone verification codes.
 
 ## 3. Text nudges: Textbelt
 
@@ -153,13 +154,39 @@ cd web && cp .env.example .env.local    # set HIYO_API_URL and HIYO_ONBOARDING_T
 npm install && npm run dev               # http://localhost:3000
 ```
 
-Without the engine (or env vars) it runs in preview mode and stores nothing.
-Preferences apply immediately; phone number and calendar link are staged in
-`runtime/onboarding_pending.json`. Confirm them on the Mac:
+The three stages are Connect WHOOP, Your Coach, and First Call. Missing engine
+configuration returns an error; only DISPATCHER=dryrun is a call preview.
 
-```bash
-uv run python scripts/apply_onboarding.py
-```
+1. WHOOP Developer Dashboard: register the app and exact
+   `http://localhost:3000/api/whoop/callback`. Set engine WHOOP_CLIENT_ID,
+   WHOOP_CLIENT_SECRET, WHOOP_REDIRECT_URI and HIYO_WEB_URL. Confirm permission
+   for the intended AI data use before launch. This cloud integration provides
+   periodic recovery/sleep/strain records, independently of the BLE demo above.
+2. Google Cloud: enable Calendar API, configure the OAuth consent screen/test
+   users, register `http://localhost:3000/api/google/callback`, and set engine
+   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI. Access is
+   read-only to the primary calendar. Recurring calls require calendar access.
+3. Twilio: create a Verify service and set TWILIO_VERIFY_SERVICE_SID alongside
+   the account SID/auth token. The verified phone must match OWNER_PHONE_NUMBER
+   if a valid owner number is configured.
+4. Set matching HIYO_ONBOARDING_TOKEN on engine and web. Set web HIYO_SETUP_KEY
+   to a long random secret; open `/onboarding?setup=<key>` once. Production
+   builds reject setup access when this key is missing. The engine must be on
+   a private connection to web; the webhook tunnel blocks setup endpoints.
+5. Complete setup in dry-run mode, then explicitly click Start first call.
+   The first call introduces the selected coach, summarizes dated WHOOP data,
+   answers questions, and names the planned next contact. Saving preferences
+   alone cannot start background calls. Repeated submissions cannot redial.
+6. For a separately authorized live acceptance test, configure Vapi and its
+   webhook secret (§2), set DISPATCHER=vapi, and use Start first call. Keep the
+   engine running for recurring calls. Message frequency is a weekly maximum
+   on useful event-based nudges, not a guaranteed number of scheduled texts.
+
+OAuth credentials remain server-side. Runtime token files use 0600 permissions;
+the current private instance supports one owner. A public multi-user service
+still needs per-user identity, encrypted storage, and durable scheduling.
+The legacy local apply_onboarding.py helper remains available for old staged
+phone/iCal setup; verified first-call setup applies its verified phone directly.
 
 Details: [web/README.md](../web/README.md).
 

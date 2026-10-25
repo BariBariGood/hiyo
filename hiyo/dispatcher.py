@@ -102,7 +102,8 @@ def build_assistant(brief: dict[str, str], public_base_url: str, webhook_secret:
                         "parameters": {"type": "object", "properties": {}, "required": []},
                     },
                     "server": tool_server,
-                }
+                },
+                {"type": "endCall"},
             ],
         },
         "transcriber": {"provider": "deepgram", "model": "nova-3", "language": "en"},

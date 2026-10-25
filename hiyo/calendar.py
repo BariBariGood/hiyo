@@ -19,6 +19,7 @@ import recurring_ical_events
 from icalendar import Calendar as ICalendar
 
 from .models import CalendarEvent, ContextSnapshot, LA_TZ
+from .google_calendar_oauth import GoogleCalendarOAuth
 
 log = logging.getLogger("hiyo.calendar")
 
@@ -158,9 +159,27 @@ class CalendarProvider:
         self._cache: tuple[float, list[CalendarEvent]] | None = None  # (monotonic, events)
 
     def set_mode(self, mode: str) -> None:
-        if mode not in ("live", "fixture"):
-            raise ValueError("mode must be 'live' or 'fixture'")
+        if mode not in ("live", "fixture", "google"):
+            raise ValueError("mode must be 'live', 'google' or 'fixture'")
         self.mode = mode
+
+    async def _fetch_google_events(self, now: datetime) -> list[CalendarEvent]:
+        items = await GoogleCalendarOAuth().events(now)
+        events = []
+        for item in items:
+            if item.get("status") == "cancelled":
+                continue
+            start_data, end_data = item.get("start") or {}, item.get("end") or {}
+            raw_start = start_data.get("dateTime") or start_data.get("date")
+            raw_end = end_data.get("dateTime") or end_data.get("date")
+            if not raw_start:
+                continue
+            start, all_day = _to_aware(datetime.fromisoformat(raw_start) if "T" in raw_start else date.fromisoformat(raw_start), self.tz)
+            end = _to_aware(datetime.fromisoformat(raw_end) if "T" in raw_end else date.fromisoformat(raw_end), self.tz)[0] if raw_end else start + timedelta(hours=1)
+            events.append(CalendarEvent(uid=item.get("id", ""), title=item.get("summary", "Busy"),
+                                        start=start, end=end, all_day=all_day,
+                                        transparent=item.get("transparency") == "transparent"))
+        return events
 
     async def _fetch_live_events(self, now: datetime) -> list[CalendarEvent]:
         if not self.ical_url:
@@ -199,6 +218,13 @@ class CalendarProvider:
                 log.warning("fixture load failed: %s", exc)
                 return summarize([], now, "fixture", False, now, self.tz,
                                  activity, activity_provenance)
+        if self.mode == "google":
+            try:
+                events = await self._fetch_google_events(now)
+                return summarize(events, now, "google", True, now, self.tz, activity, activity_provenance)
+            except Exception as exc:
+                log.warning("Google Calendar fetch failed: %s", type(exc).__name__)
+                return summarize([], now, "google", False, None, self.tz, activity, activity_provenance)
         try:
             events = await self._fetch_live_events(now)
             return summarize(events, now, "live", True, now, self.tz,

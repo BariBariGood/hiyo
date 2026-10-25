@@ -19,10 +19,7 @@ def install_routes(app, *, require_operator, service_dependency, clock):
     def soul(request: Request) -> SoulEngine:
         engine = getattr(request.app.state, "soul", None)
         if engine is None:
-            import os
-            store = SoulStore(Path(os.environ.get("HIYO_SOUL_DB", "runtime/soul.sqlite3")))
-            policy_path = Path(os.environ.get("HIYO_SOUL_POLICY", str(Path(__file__).resolve().parents[2] / "config/soul_policy.json")))
-            engine = SoulEngine.from_policy_file(store, policy_path)
+            engine = request.app.state.service.get_soul_engine()
             request.app.state.soul = engine
         return engine
 
@@ -54,6 +51,15 @@ def install_routes(app, *, require_operator, service_dependency, clock):
         check_owner(body.profile, service)
         try:
             return engine.record_feedback(body.profile, body.feedback, clock())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post("/api/soul/prepare", dependencies=protected)
+    async def prepare(body: CoachingContext, service=Depends(service_dependency)):
+        check_owner(body.profile, service)
+        try:
+            prepared = await service.prepare_coaching_call(clock(), body)
+            return prepared.evaluation
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
 

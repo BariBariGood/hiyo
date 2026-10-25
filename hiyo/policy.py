@@ -38,6 +38,7 @@ LEVEL_CALL_CAP = {"low": 0, "medium": 1, "high": 2}
 NUDGE_DAILY_CAP = {"low": 2, "medium": 3, "high": 5}
 
 _PLAIN = {
+    "FIRST_CALL_PENDING": "The user has not started their first call yet.",
     "NOT_ROUTINE_DAY": "Today is not one of the user's chosen routine call days.",
     "NO_CONSENT": "Owner has not opted in to calls.",
     "RECIPIENT_NOT_VERIFIED": "Owner phone number is missing, invalid, or not allowlisted.",
@@ -70,6 +71,8 @@ _PLAIN = {
     "LOW_INTERVENTION_NUDGE": "Low intervention level — sent a text instead of a call.",
     "NUDGE_COOLDOWN": "Within nudge cooldown.",
     "NUDGE_DAILY_CAP": "Daily nudge cap reached.",
+    "MESSAGE_WEEKLY_CAP": "Chosen weekly message limit reached.",
+    "CALL_WEEKLY_CAP": "Chosen weekly call limit reached.",
     "ESCALATED_AFTER_NUDGE": "Un-acknowledged nudge, still elevated — escalating to a call.",
     "SCHEDULED_CHECKIN": "Consented scheduled check-in.",
     "EXTRA_CHECKIN": "Operator-requested extra check-in.",
@@ -139,8 +142,12 @@ def decide(
     # 0. trigger validity
     if trigger in UNSUPPORTED_TRIGGERS or trigger not in TRIGGERS:
         return ig("UNSUPPORTED_TRIGGER")
+    if not profile.onboarding_complete:
+        return ig("FIRST_CALL_PENDING")
 
     level = profile.intervention_level
+    if profile.routine is not None and trigger == "pre_event_checkin":
+        level = "low"  # Explicit routine choices supersede unscheduled escalation calls.
     if level not in LEVEL_CALL_CAP:
         return ig("INTERVENTION_LOW")
     # trigger-specific eligibility
@@ -166,6 +173,10 @@ def decide(
         status = routine_status(profile.routine, now, profile.timezone)
         if status != "DUE":
             return df(status) if status == "NOT_DUE" else ig(status)
+        week = now.astimezone(ZoneInfo(profile.timezone)).strftime("%G-W%V")
+        cap = 7 if profile.routine.frequency == "daily" else profile.routine.calls_per_week
+        if state.call_week == week and state.calls_this_week >= cap:
+            return ig("CALL_WEEKLY_CAP")
     if trigger == "morning_checkin" and not force_schedule:
         local = now.astimezone(ZoneInfo(profile.timezone)).time()
         hh, mm = map(int, profile.morning_checkin_time.split(":"))
@@ -264,6 +275,9 @@ def decide(
                 if now - ln < timedelta(minutes=profile.nudge_cooldown_minutes):
                     return ig("NUDGE_COOLDOWN")
             today_nudges = state.nudges_today if state.calls_date == today else 0
+            week = now.astimezone(ZoneInfo(profile.timezone)).strftime("%G-W%V")
+            if profile.messages_per_week <= 0 or (state.message_week == week and state.messages_this_week >= profile.messages_per_week):
+                return ig("MESSAGE_WEEKLY_CAP")
             if today_nudges >= NUDGE_DAILY_CAP.get(level, 2):
                 return ig("NUDGE_DAILY_CAP")
             bucket = int(now.timestamp() // CANDIDATE_BUCKET_S)

@@ -30,11 +30,16 @@ export async function POST(req: NextRequest) {
   const c = body?.consents ?? {};
   if (!c.agree_calls || !c.ai_not_medical || !c.can_stop)
     return NextResponse.json({ error: "required consents missing" }, { status: 422 });
+  const firstCall = body?.first_call ?? {};
+  if (firstCall.mode && !["now", "scheduled"].includes(firstCall.mode))
+    return NextResponse.json({ error: "bad first call mode" }, { status: 422 });
+  if (firstCall.mode === "scheduled" && !firstCall.scheduled_at)
+    return NextResponse.json({ error: "scheduled first call needs a time" }, { status: 422 });
 
   const url = process.env.HIYO_API_URL;
   const token = process.env.HIYO_ONBOARDING_TOKEN;
   if (!url || !token)
-    return NextResponse.json({ mode: "preview", stored: false }, { status: 202 });
+    return NextResponse.json({ error: "Setup service is not configured" }, { status: 503 });
 
   try {
     const r = await fetch(`${url}/api/onboarding`, {

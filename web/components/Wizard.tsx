@@ -1,226 +1,227 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const E164 = /^\+[1-9]\d{6,14}$/;
-const ICAL = /^https:\/\/calendar\.google\.com\/calendar\/ical\/.+\/basic\.ics$/;
-const SECRET_FIELDS = ["phone", "ical_url"]; // never persisted to localStorage
-
-const PERSONALITIES = [
-  { id: "gentle", name: "The Gentle Companion", desc: "Soft-spoken, reassuring, checks in like a friend." },
-  { id: "focused", name: "The Focused Coach", desc: "Direct, practical, keeps you on plan." },
-  { id: "analytical", name: "The Analyst", desc: "Calm, data-minded, explains what it sees." },
-];
-const STYLES = ["direct", "balanced", "natural"];
-const LEVELS = [
-  { id: "low", desc: "Texts only — never calls." },
-  { id: "medium", desc: "Up to 1 call/day + texts." },
-  { id: "high", desc: "Up to 2 calls/day + texts." },
-];
-const STEPS = ["About you", "Wearable", "Calendar", "Phone & consent", "Your coach", "Review", "Done"];
-
-type State = Record<string, any>;
-const initial: State = {
-  preferred_name: "", fitness_goal: "", usual_workout_days: [] as number[],
-  timezone: "America/Los_Angeles", ical_url: "", phone: "",
-  agree_calls: false, agree_texts: false, ai_not_medical: false, can_stop: false,
-  personality: "gentle", voice_style: "natural", sms_style: "direct",
-  intervention_level: "medium", quiet_hours_start: "21:00", quiet_hours_end: "09:00",
-  morning_checkin_enabled: true, morning_checkin_time: "08:30",
+type Stage = 0 | 1 | 2;
+type Coach = "gentle" | "focused" | "analytical";
+type Draft = {
+  preferred_name: string; timezone: string; personality: Coach;
+  calls: number; messages: number; weekdays: number[]; call_time: string;
+  contact_start: string; contact_end: string;
 };
+type Connection = { connected?: boolean; configured?: boolean; simulated?: boolean; data_status?: string; checked_at?: string; profile?: { first_name?: string }; latest?: Record<string, { observed_at?: string; score_state?: string }> };
+const defaults: Draft = { preferred_name: "", timezone: "", personality: "gentle", calls: 3, messages: 3,
+  weekdays: [0, 2, 4], call_time: "09:00", contact_start: "09:00", contact_end: "20:00" };
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const DAY_SETS: Record<number, number[]> = { 0: [], 1: [0], 2: [0, 3], 3: [0, 2, 4], 4: [0, 2, 4, 6], 5: [0, 1, 2, 3, 4], 6: [0, 1, 2, 3, 4, 5], 7: [0, 1, 2, 3, 4, 5, 6] };
+const COACHES: { id: Coach; name: string; description: string }[] = [
+  { id: "gentle", name: "The Companion", description: "Warm encouragement. Small steps, at your pace." },
+  { id: "focused", name: "The Coach", description: "Clear priorities. Practical plans and follow-through." },
+  { id: "analytical", name: "The Guide", description: "Understand the data and the reason behind each suggestion." },
+];
+const DRAFT_KEY = "hiyo_setup_v3";
+const E164 = /^\+[1-9]\d{6,14}$/;
+
+async function api(path: string, body?: unknown) {
+  const response = await fetch(path, body === undefined ? { cache: "no-store" } : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || data.detail || "Something went wrong. Please try again.");
+  return data;
+}
 
 export default function Wizard() {
-  const [step, setStep] = useState(0);
-  const [st, setSt] = useState<State>(initial);
-  const [err, setErr] = useState("");
-  const [result, setResult] = useState<any>(null);
+  const [stage, setStage] = useState<Stage>(0);
+  const [draft, setDraft] = useState<Draft>(defaults);
+  const [whoop, setWhoop] = useState<Connection>({});
+  const [calendar, setCalendar] = useState<Connection>({});
+  const [phone, setPhone] = useState("");
+  const [code, setCode] = useState("");
+  const [verified, setVerified] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [consent, setConsent] = useState(false);
+  const [callStatus, setCallStatus] = useState("");
+  const [busy, setBusy] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+  const running = useRef(false);
 
   useEffect(() => {
+    let saved: Partial<Draft> = {}, savedStage: Stage = 0;
     try {
-      const raw = localStorage.getItem("hiyo_onboard_draft");
-      if (raw) {
-        const saved = JSON.parse(raw);
-        SECRET_FIELDS.forEach((k) => delete saved[k]); // secrets never persisted
-        setSt({ ...initial, ...saved });
-      }
+      const stored = JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}");
+      saved = stored.draft || {}; savedStage = stored.stage === 1 || stored.stage === 2 ? stored.stage : 0;
     } catch {}
-  }, []);
-  useEffect(() => {
-    const draft = { ...st };
-    SECRET_FIELDS.forEach((k) => delete draft[k]);
-    try { localStorage.setItem("hiyo_onboard_draft", JSON.stringify(draft)); } catch {}
-  }, [st]);
-
-  const set = (k: string, v: any) => { setErr(""); setSt({ ...st, [k]: v }); };
-  const toggleDay = (i: number) =>
-    set("usual_workout_days",
-      st.usual_workout_days.includes(i)
-        ? st.usual_workout_days.filter((d: number) => d !== i)
-        : [...st.usual_workout_days, i].sort());
-
-  const valid = (): string => {
-    if (step === 0 && !st.preferred_name.trim()) return "Tell me your name.";
-    if (step === 2 && st.ical_url && !ICAL.test(st.ical_url))
-      return "That doesn't look like a Google secret iCal address.";
-    if (step === 3) {
-      if (!E164.test(st.phone)) return "Phone must be E.164, like +15551234567.";
-      if (!st.agree_calls || !st.ai_not_medical || !st.can_stop)
-        return "The required consents are needed to continue.";
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    setDraft({ ...defaults, timezone, ...saved });
+    setStage(savedStage);
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("whoop") === "error" || query.get("calendar") === "error") {
+      setError("The connection couldn't be confirmed. Your progress is saved; you can connect again.");
     }
-    return "";
-  };
+    Promise.allSettled([api("/api/onboarding/context"), api("/api/whoop/status"), api("/api/google/status")])
+      .then(([context, wearable, google]) => {
+        const w: Connection = wearable.status === "fulfilled" ? wearable.value : {};
+        setWhoop(w);
+        if (google.status === "fulfilled") setCalendar(google.value);
+        if (context.status === "fulfilled") {
+          const c = context.value, routine = c.routine;
+          setDraft((current) => ({ ...current,
+            preferred_name: saved.preferred_name || w.profile?.first_name || c.preferred_name || "",
+            personality: saved.personality || c.personality || "gentle",
+            messages: saved.messages ?? c.messages_per_week ?? 3,
+            contact_start: saved.contact_start || String(c.allowed_contact_hours?.[0] ?? 9).padStart(2, "0") + ":00",
+            contact_end: saved.contact_end || String(c.allowed_contact_hours?.[1] ?? 20).padStart(2, "0") + ":00",
+            ...(routine && !saved.call_time ? { call_time: routine.local_time || "09:00", calls: routine.enabled ? (routine.frequency === "daily" ? 7 : routine.calls_per_week) : 0,
+              weekdays: routine.weekdays?.length ? routine.weekdays : DAY_SETS[routine.calls_per_week || 3] } : {}),
+          }));
+          if (c.phone_verified) { setPhone(c.phone); setVerified(true); }
+          if (c.first_call_status) { setCallStatus(c.first_call_status); setStage(2); setConsent(true); }
+        }
+        if (query.get("calendar") === "connected") setStage(1);
+        if (wearable.status === "rejected") setError("Connection status is unavailable. Please retry.");
+      }).finally(() => setLoaded(true));
+  }, []);
 
-  const submit = async () => {
-    const body = {
-      prefs: {
-        preferred_name: st.preferred_name, fitness_goal: st.fitness_goal,
-        usual_workout_days: st.usual_workout_days, personality: st.personality,
-        voice_style: st.voice_style, sms_style: st.sms_style,
-        intervention_level: st.intervention_level,
-        quiet_hours_start: st.quiet_hours_start, quiet_hours_end: st.quiet_hours_end,
-        morning_checkin_enabled: st.morning_checkin_enabled,
-        morning_checkin_time: st.morning_checkin_time,
-      },
-      phone: st.phone, ical_url: st.ical_url,
-      consents: { agree_calls: st.agree_calls, agree_texts: st.agree_texts,
-                  ai_not_medical: st.ai_not_medical, can_stop: st.can_stop },
-    };
-    const r = await fetch("/api/onboarding", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+  useEffect(() => {
+    if (!loaded) return;
+    try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ draft, stage })); } catch {}
+  }, [draft, stage, loaded]);
+
+  const change = <K extends keyof Draft>(key: K, value: Draft[K]) => {
+    setDraft((current) => ({ ...current, [key]: value })); setError("");
+  };
+  const perform = async (label: string, action: () => Promise<void>) => {
+    if (running.current) return;
+    running.current = true; setBusy(label); setError("");
+    try { await action(); } catch (e) { setError(e instanceof Error ? e.message : "Please try again."); }
+    finally { running.current = false; setBusy(""); }
+  };
+  const connect = (provider: "whoop" | "google") => perform("connect", async () => {
+    const data = await api(`/api/${provider}/authorize`);
+    window.location.assign(data.authorize_url);
+  });
+  const sendCode = () => perform("send-code", async () => {
+    if (!E164.test(phone)) throw new Error("Use your country code, for example +15551234567.");
+    await api("/api/phone/verification/start", { phone }); setCodeSent(true);
+  });
+  const verifyCode = () => perform("verify", async () => {
+    const data = await api("/api/phone/verification/check", { phone, code });
+    if (!data.verified) throw new Error("That code wasn't accepted. Check it and try again.");
+    setVerified(true);
+  });
+  const save = () => perform("save", async () => {
+    if (!whoop.connected) throw new Error("Connect WHOOP to continue.");
+    if (!verified) throw new Error("Verify your phone number to continue.");
+    if (!draft.preferred_name.trim()) throw new Error("Add the name you'd like your coach to use.");
+    if (!consent) throw new Error("Confirm that Hiyo may contact you.");
+    if (draft.calls > 0 && !calendar.connected) throw new Error("Connect Google Calendar for recurring calls, or choose First call only.");
+    if (draft.calls && draft.weekdays.length !== draft.calls) throw new Error(`Choose ${draft.calls} call days.`);
+    if (draft.contact_start >= draft.contact_end) throw new Error("Choose a contact window that ends after it starts.");
+    if (draft.calls && (draft.call_time < draft.contact_start || draft.call_time >= draft.contact_end)) throw new Error("Choose a call time inside your contact window.");
+    await api("/api/onboarding", {
+      prefs: { preferred_name: draft.preferred_name.trim(), timezone: draft.timezone, personality: draft.personality,
+        messages_per_week: draft.messages, morning_checkin_enabled: false,
+        allowed_contact_hours: [Number(draft.contact_start.split(":")[0]), Number(draft.contact_end.split(":")[0])],
+        quiet_hours_start: draft.contact_end, quiet_hours_end: draft.contact_start,
+        routine: { enabled: draft.calls > 0, frequency: draft.calls === 7 ? "daily" : "weekly",
+          calls_per_week: draft.calls || 1, weekdays: draft.weekdays, local_time: draft.call_time, time_of_day: Number(draft.call_time.slice(0, 2)) < 12 ? "morning" : "evening" } },
+      phone, consents: { agree_calls: true, agree_texts: draft.messages > 0, ai_not_medical: true, can_stop: true },
+      first_call: { mode: "now" },
     });
-    if (!r.ok) { setErr(`submit failed (${r.status})`); return; }
-    setResult(await r.json());
-    setStep(6);
-  };
+    setCallStatus("ready"); setStage(2);
+  });
+  const startCall = () => perform("call", async () => {
+    try {
+      const response = await api("/api/onboarding/first-call", {});
+      setCallStatus(response.status);
+    } catch (error) {
+      try {
+        const current = await api("/api/onboarding/context");
+        if (current.first_call_status) setCallStatus(current.first_call_status);
+      } catch {}
+      throw error;
+    }
+  });
+  const toggleDay = (day: number) => change("weekdays", draft.weekdays.includes(day)
+    ? draft.weekdays.filter((value) => value !== day) : [...draft.weekdays, day].sort());
+  const title = ["Connect WHOOP", "Make Hiyo yours", "Meet your coach"][stage];
+  const timestamp = whoop.checked_at ? new Date(whoop.checked_at).toLocaleString() : "";
+  const callAttempted = ["dispatching", "dialing", "preview", "completed", "failed"].includes(callStatus);
+  const hours = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`);
 
-  const next = () => { const e = valid(); if (e) { setErr(e); return; } setStep(step + 1); };
+  return <>
+    <main className="onboarding-shell" aria-busy={Boolean(busy)}>
+      <div className="eyes" aria-hidden><span className="dot" /><span className="line" /><span className="dot" /></div>
+      <div className="eyebrow">HIYO · SETUP {stage + 1} OF 3</div>
+      {whoop.simulated && <p className="fineprint" role="status">Test preview · simulated data and calls</p>}
+      <h1 tabIndex={-1}>{title}</h1>
+      <p className="lede">A coach who works around your life. Start with a short conversation.</p>
+      <nav className="stagebar" aria-label="Setup progress">{["CONNECT", "YOUR COACH", "FIRST CALL"].map((name, i) =>
+        <span key={name} className={i <= stage ? "active" : ""} aria-current={i === stage ? "step" : undefined}>{name}</span>)}</nav>
 
-  return (
-    <>
-      <main>
-        <div className="eyes" aria-hidden><span className="dot" /><span className="line" /><span className="dot" /></div>
-        <h2 style={{ marginTop: 16 }}>{STEPS[step]}</h2>
-        <div className="dots">{STEPS.map((_, i) => <span key={i} className={i <= step ? "on" : ""} />)}</div>
+      {stage === 0 && <section className="card">
+        <h2>Your data, with context</h2>
+        <p className="hint">Connect your WHOOP account so Hiyo can understand your sleep, recovery, and strain.</p>
+        <div className="status-panel" role="status"><strong>{!loaded ? "Checking connection…" : whoop.connected ? "WHOOP connected" : "Connect your WHOOP account"}</strong>
+          <span>{whoop.data_status === "available" ? "Recorded data is available." : whoop.connected ? "Connected. Scored data may still be syncing." : "Sign in to WHOOP and allow access."}</span>
+          {timestamp && <span>Last checked {timestamp}. WHOOP data updates after syncing; it is not live.</span>}
+        </div>
+        <button className="pill primary wide" onClick={() => connect("whoop")} disabled={Boolean(busy) || !loaded}>{whoop.connected ? "Reconnect WHOOP" : "Connect WHOOP"}</button>
+        <div className="row"><button className="pill primary" onClick={() => { setStage(1); setError(""); }} disabled={!whoop.connected}>Continue</button></div>
+      </section>}
 
-        {step === 0 && <div className="card">
-          <label>What should I call you?</label>
-          <input type="text" value={st.preferred_name} onChange={(e) => set("preferred_name", e.target.value)} placeholder="Ivan" />
-          <label>Fitness goal</label>
-          <input type="text" value={st.fitness_goal} onChange={(e) => set("fitness_goal", e.target.value)} placeholder="e.g. build consistency, recover better" />
-          <label>Typical training days</label>
-          <div className="chips">{DAYS.map((d, i) => (
-            <button key={d} className={`chip ${st.usual_workout_days.includes(i) ? "on" : ""}`} onClick={() => toggleDay(i)}>{d}</button>
-          ))}</div>
-          <label>Timezone</label>
-          <input type="text" value={st.timezone} onChange={(e) => set("timezone", e.target.value)} />
-        </div>}
+      {stage === 1 && <>
+        <section className="card">
+          <h2>Choose your coach</h2>
+          <div className="coach-options" role="group" aria-label="Coach style">{COACHES.map((coach) =>
+            <button key={coach.id} aria-pressed={draft.personality === coach.id} className={`choice ${draft.personality === coach.id ? "selected" : ""}`} onClick={() => change("personality", coach.id)}>
+              <strong>{coach.name}</strong><span>{coach.description}</span>
+            </button>)}</div>
+          <label htmlFor="name">Your name</label><input id="name" type="text" autoComplete="given-name" maxLength={40} value={draft.preferred_name} onChange={(e) => change("preferred_name", e.target.value)} />
+        </section>
+        <section className="card">
+          <h2>Stay in touch, on your terms</h2>
+          <div className="field-pair"><div><label htmlFor="calls">Calls per week</label><select id="calls" value={draft.calls} onChange={(e) => { const calls = Number(e.target.value); setDraft((d) => ({ ...d, calls, weekdays: DAY_SETS[calls] })); }}>
+            {[0, 1, 2, 3, 5, 7].map((n) => <option key={n} value={n}>{n === 0 ? "First call only" : n === 7 ? "Every day" : `${n} per week`}</option>)}</select></div>
+            <div><label htmlFor="messages">Messages per week</label><select id="messages" value={draft.messages} onChange={(e) => change("messages", Number(e.target.value))}>
+              {[0, 1, 3, 7].map((n) => <option key={n} value={n}>{n ? `Up to ${n}` : "Off"}</option>)}</select></div></div>
+          <p className="hint">Messages are sent when there's something useful to share, up to your chosen limit.</p>
+          {draft.calls > 0 && <><label>Call days</label><div className="chips">{DAY_NAMES.map((day, i) =>
+            <button key={day} className={`chip ${draft.weekdays.includes(i) ? "on" : ""}`} aria-pressed={draft.weekdays.includes(i)} onClick={() => toggleDay(i)}>{day}</button>)}</div>
+            <label htmlFor="call-time">Preferred call time</label><input id="call-time" type="time" value={draft.call_time} onChange={(e) => change("call_time", e.target.value)} /></>}
+          <div className="field-pair"><div><label htmlFor="contact-start">Contact me after</label><select id="contact-start" value={draft.contact_start} onChange={(e) => change("contact_start", e.target.value)}>{hours.map((hour) => <option key={hour}>{hour}</option>)}</select></div>
+            <div><label htmlFor="contact-end">Contact me before</label><select id="contact-end" value={draft.contact_end} onChange={(e) => change("contact_end", e.target.value)}>{hours.map((hour) => <option key={hour}>{hour}</option>)}</select></div></div>
+          <label htmlFor="timezone">Timezone <span className="optional">detected automatically</span></label><input id="timezone" type="text" value={draft.timezone} onChange={(e) => change("timezone", e.target.value)} />
+        </section>
+        <section className="card">
+          <h2>Work around your calendar</h2><p className="hint">Connect Google Calendar so Hiyo can see when you're busy and help plan around your day. Read-only access to your primary calendar.</p>
+          <button className="pill" disabled={Boolean(busy)} onClick={() => connect("google")}>{calendar.connected ? "Google Calendar connected ✓" : "Connect Google Calendar"}</button>
+          <p className="fineprint">Needed for recurring calls so Hiyo can avoid busy times. You can choose First call only and connect later.</p>
+        </section>
+        <section className="card">
+          <h2>Your first conversation</h2>
+          <label htmlFor="phone">Phone number</label><input id="phone" type="tel" autoComplete="tel" placeholder="+15551234567" value={phone} onChange={(e) => { setPhone(e.target.value.replace(/[\s()-]/g, "")); setVerified(false); setCodeSent(false); }} />
+          {verified ? <p className="verified" role="status">✓ Phone verified</p> : <><button className="pill verify-button" disabled={Boolean(busy)} onClick={sendCode}>{busy === "send-code" ? "Sending…" : codeSent ? "Resend code" : "Send verification code"}</button>
+            {codeSent && <div className="verify-row"><input aria-label="Verification code" type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={8} value={code} onChange={(e) => setCode(e.target.value)} /><button className="pill" disabled={Boolean(busy) || code.length < 4} onClick={verifyCode}>Verify</button></div>}</>}
+          <label className="checkrow"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /><span>I agree to AI calls{draft.messages > 0 ? " and messages" : ""} at this number. I can pause anytime. Hiyo provides fitness and wellness guidance, not medical care.</span></label>
+        </section>
+        <div className="row"><button className="pill" disabled={Boolean(busy)} onClick={() => setStage(0)}>Back</button><button className="pill primary" disabled={Boolean(busy)} onClick={save}>{busy === "save" ? "Saving…" : "Continue"}</button></div>
+      </>}
 
-        {step === 1 && <div className="card">
-          <h2>WHOOP</h2>
-          <p className="hint">WHOOP app → Device Settings → <b>Heart Rate Broadcast</b> ON.
-            Your Mac receives live heart rate — no WHOOP account needed.</p>
-          <div style={{ display: "grid", gap: 12, marginTop: 16 }}>
-            {[["Oura Ring"], ["Apple Watch"], ["Garmin"]].map(([n]) => (
-              <div key={n} className="optcard off"><b>{n}</b><div className="hint">coming soon</div></div>
-            ))}
-          </div>
-        </div>}
-
-        {step === 2 && <div className="card">
-          <label>Google Calendar — secret iCal address (optional)</label>
-          <input type="url" value={st.ical_url} onChange={(e) => set("ical_url", e.target.value)}
-            placeholder="https://calendar.google.com/calendar/ical/…/basic.ics" />
-          <p className="hint">Google Calendar → Settings → your calendar →
-            "Secret address in iCal format". Read-only; we only see titles and times.</p>
-        </div>}
-
-        {step === 3 && <div className="card">
-          <label>Your phone (E.164)</label>
-          <input type="tel" value={st.phone} onChange={(e) => set("phone", e.target.value)} placeholder="+15551234567" />
-          {[["agree_calls", "I agree hiyo may call me *"],
-            ["agree_texts", "I agree hiyo may text me (optional)"],
-            ["ai_not_medical", "I understand hiyo is an AI and not a medical device *"],
-            ["can_stop", "I can say STOP or use the off switch anytime *"]].map(([k, t]) => (
-            <div key={k} className="checkrow">
-              <input type="checkbox" id={k} checked={st[k]} onChange={(e) => set(k, e.target.checked)} />
-              <label htmlFor={k} style={{ margin: 0, fontWeight: 500 }}>{t}</label>
-            </div>))}
-        </div>}
-
-        {step === 4 && <div className="card">
-          <label>Coach personality</label>
-          <div style={{ display: "grid", gap: 10 }}>
-            {PERSONALITIES.map((p) => (
-              <div key={p.id} className={`optcard ${st.personality === p.id ? "on" : ""}`}
-                onClick={() => set("personality", p.id)}>
-                <b>{p.name}</b><div className="hint">{p.desc}</div>
-              </div>))}
-          </div>
-          <label>Voice style / SMS style</label>
-          <div style={{ display: "flex", gap: 10 }}>
-            <select value={st.voice_style} onChange={(e) => set("voice_style", e.target.value)}>
-              {STYLES.map((s) => <option key={s}>{s}</option>)}
-            </select>
-            <select value={st.sms_style} onChange={(e) => set("sms_style", e.target.value)}>
-              {STYLES.map((s) => <option key={s}>{s}</option>)}
-            </select>
-          </div>
-          <label>Intervention level</label>
-          <div className="chips">{LEVELS.map((l) => (
-            <button key={l.id} className={`chip ${st.intervention_level === l.id ? "on" : ""}`}
-              onClick={() => set("intervention_level", l.id)} title={l.desc}>{l.id}</button>
-          ))}</div>
-          <p className="hint">low = texts only, no calls · medium = 1 call/day · high = 2 calls/day</p>
-          <label>Quiet hours</label>
-          <div style={{ display: "flex", gap: 10 }}>
-            <input type="time" value={st.quiet_hours_start} onChange={(e) => set("quiet_hours_start", e.target.value)} />
-            <input type="time" value={st.quiet_hours_end} onChange={(e) => set("quiet_hours_end", e.target.value)} />
-          </div>
-          <div className="checkrow">
-            <input type="checkbox" id="mc" checked={st.morning_checkin_enabled}
-              onChange={(e) => set("morning_checkin_enabled", e.target.checked)} />
-            <label htmlFor="mc" style={{ margin: 0, fontWeight: 500 }}>Morning check-in</label>
-            <input type="time" style={{ width: 120 }} value={st.morning_checkin_time}
-              onChange={(e) => set("morning_checkin_time", e.target.value)} />
-          </div>
-        </div>}
-
-        {step === 5 && <div className="card">
-          <h2>Review</h2>
-          {[
-            ["Name", st.preferred_name], ["Goal", st.fitness_goal || "—"],
-            ["Training days", st.usual_workout_days.map((d: number) => DAYS[d]).join(", ") || "—"],
-            ["Timezone", st.timezone],
-            ["Calendar", st.ical_url ? "connected (iCal)" : "skipped"],
-            ["Phone", st.phone ? `…${st.phone.slice(-2)}` : "—"],
-            ["Coach", `${st.personality} · voice ${st.voice_style} · texts ${st.sms_style}`],
-            ["Intervention", st.intervention_level],
-            ["Quiet hours", `${st.quiet_hours_start}–${st.quiet_hours_end}`],
-            ["Morning check-in", st.morning_checkin_enabled ? st.morning_checkin_time : "off"],
-          ].map(([k, v]) => <div key={k} className="kv"><span>{k}</span><b>{v}</b></div>)}
-          <div className="row">
-            <button className="pill" onClick={() => setStep(step - 1)}>Back</button>
-            <button className="pill primary" onClick={submit}>Connect hiyo</button>
-          </div>
-        </div>}
-
-        {step === 6 && <div className="card" style={{ textAlign: "center", padding: 56 }}>
-          <h2>{result?.mode === "preview" ? "Preview mode" : "Connected"}</h2>
-          <p className="hint">{result?.mode === "preview"
-            ? "No engine configured yet — your preferences weren't sent anywhere."
-            : "hiyo has your preferences. Your coach is listening."}</p>
-        </div>}
-
-        {err && <p className="err" role="alert">{err}</p>}
-        {step > 0 && step < 5 && <div className="row">
-          <button className="pill" onClick={() => setStep(step - 1)}>Back</button>
-          <button className="pill primary" onClick={next}>Continue</button>
-        </div>}
-        {step === 0 && <div className="row"><button className="pill primary" onClick={next}>Continue</button></div>}
-      </main>
-      <footer>Theme inspired by Baymax (Big Hero 6, Disney). Fan tribute, not affiliated. · Not a medical device.</footer>
-    </>
-  );
+      {stage === 2 && <section className="card ready-card">
+        <h2>{callStatus === "dialing" ? "Your phone should ring shortly" : callStatus === "preview" ? "First call preview completed" : callStatus === "failed" ? "The call couldn't start" : "A short hello, then a plan"}</h2>
+        <p className="hint">{COACHES.find((c) => c.id === draft.personality)?.name} will introduce Hiyo, summarize the information available, and answer your questions.</p>
+        <dl className="setup-summary"><div><dt>WHOOP</dt><dd>{whoop.connected ? "Connected" : "Check connection"}</dd></div><div><dt>Google Calendar</dt><dd>{calendar.connected ? "Connected" : "Not connected"}</dd></div>
+          <div><dt>Next calls</dt><dd>{draft.calls ? `${draft.weekdays.map((d) => DAY_NAMES[d]).join(", ")} · ${draft.call_time}` : "First call only"}</dd></div>
+          <div><dt>Messages</dt><dd>{draft.messages ? `Up to ${draft.messages} per week` : "Off"}</dd></div></dl>
+        {callStatus === "preview" && <p role="status">This is a preview. No phone call was placed.</p>}
+        {callStatus === "failed" && <p role="alert">Please check the call status with the Hiyo owner before trying again.</p>}
+        {!callAttempted && <><button className="pill primary wide" disabled={Boolean(busy) || !whoop.connected} onClick={startCall}>{busy === "call" ? "Preparing your call…" : "Start first call"}</button>
+          <button className="pill wide" disabled={Boolean(busy)} onClick={() => setStage(1)}>Edit setup</button></>}
+      </section>}
+      {error && <p className="err" role="alert">{error}</p>}
+    </main><footer>Hiyo · Your AI fitness and wellness companion</footer>
+  </>;
 }

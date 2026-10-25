@@ -97,6 +97,7 @@ class ContextSnapshot(BaseModel):
 class Profile(BaseModel):
     user_id: str = "owner-demo"
     opted_in: bool = True
+    onboarding_complete: bool = True  # Legacy owner configs predate the explicit first-call gate.
     baseline_bpm: int = 70
     delta_bpm: int = 15
     window_seconds: int = 45
@@ -110,6 +111,7 @@ class Profile(BaseModel):
     # Soul additions
     personality: Literal["gentle", "focused", "analytical"] = "gentle"
     routine: RoutineSchedule | None = None
+    coaching_memory_opt_in: bool | None = None
     preferred_name: str = "Ivan"
     intervention_level: str = "high"  # low|medium|high — config sets "medium"
     voice_style: str = "natural"      # direct|balanced|natural
@@ -124,6 +126,7 @@ class Profile(BaseModel):
     allowed_contact_hours: list[int] = [7, 21]
     nudge_cooldown_minutes: int = 15
     nudge_escalate_minutes: int = 8
+    messages_per_week: int = 7
 
 
 class Decision(BaseModel):
@@ -140,6 +143,7 @@ class Decision(BaseModel):
 
 
 REASON_CODES = {
+    "FIRST_CALL_PENDING",
     "NOT_ROUTINE_DAY",
     "UNSUPPORTED_TRIGGER",
     "INTERVENTION_LOW",
@@ -165,6 +169,8 @@ REASON_CODES = {
     "COOLDOWN",
     "DAILY_CAP",
     "BUDGET_CAP",
+    "MESSAGE_WEEKLY_CAP",
+    "CALL_WEEKLY_CAP",
     "POSSIBLE_EXERTION",
     "ACTIVITY_UNKNOWN",
     "NO_CANDIDATE",

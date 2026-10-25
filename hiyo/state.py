@@ -35,6 +35,10 @@ class PersistedState(BaseModel):
     last_nudge_candidate: str | None = None
     nudge_acked: bool = False
     nudges_today: int = 0
+    message_week: str | None = None
+    messages_this_week: int = 0
+    call_week: str | None = None
+    calls_this_week: int = 0
 
 
 class StateStore:
@@ -74,6 +78,11 @@ class StateStore:
         s.active_call_id = "pending"
         s.last_call_at = now
         s.calls_today += 1
+        if candidate_id != "first-call":
+            week = now.astimezone(self.tz).strftime("%G-W%V")
+            if s.call_week != week:
+                s.call_week, s.calls_this_week = week, 0
+            s.calls_this_week += 1
         self.save()
 
     def record_nudge(self, candidate_id: str, now: datetime) -> None:
@@ -85,6 +94,11 @@ class StateStore:
         s.last_nudge_candidate = candidate_id
         s.nudge_acked = False
         s.nudges_today += 1
+        week = now.astimezone(self.tz).strftime("%G-W%V")
+        if s.message_week != week:
+            s.message_week = week
+            s.messages_this_week = 0
+        s.messages_this_week += 1
         self.save()
 
     def ack_nudge(self) -> None:

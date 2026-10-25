@@ -100,6 +100,11 @@ class SoulEngine:
                         self.store.write(con, uid, "observation", reading.source + ":" + reading.observed_at.isoformat() + ":" + str(reading.simulated), reading.model_dump(mode="json"))
                 if ctx.last_workout:
                     self.store.write(con, uid, "workout", ctx.last_workout.id, ctx.last_workout.model_dump(mode="json"))
+                for workout in ctx.completed_workouts:
+                    if workout.at <= now:
+                        self.store.write(con, uid, "workout", workout.id, workout.model_dump(mode="json"))
+                for workout in ctx.planned_workouts:
+                    self.store.write(con, uid, "workout_plan", workout.id, workout.model_dump(mode="json"))
             if ctx.feedback:
                 self.record_feedback(profile, ctx.feedback, now)
         readings = [Observation.model_validate(x) for x in self.store.read(uid, "observation")] if profile.memory_opt_in else []
@@ -116,6 +121,12 @@ class SoulEngine:
         current = ctx.feedback if ctx.feedback and now - ctx.feedback.at <= timedelta(hours=30) else None
         current = current or next((x for x in feedbacks if now - x.at <= timedelta(hours=30)), None)
         previous = next((x for x in feedbacks if not current or x.id != current.id), None)
+        if profile.memory_opt_in:
+            known_workouts = {x["id"]: Workout.model_validate(x) for x in self.store.read(uid, "workout")}
+            known_plans = {x["id"]: Workout.model_validate(x) for x in self.store.read(uid, "workout_plan")}
+            known_workouts.update({x.id: x for x in ctx.completed_workouts if x.at <= now})
+            known_plans.update({x.id: x for x in ctx.planned_workouts})
+            ctx = ctx.model_copy(update={"completed_workouts": list(known_workouts.values()), "planned_workouts": list(known_plans.values())})
         if not ctx.last_workout and profile.memory_opt_in:
             workouts = [Workout.model_validate(x) for x in self.store.read(uid, "workout")]
             recent = [x for x in workouts if timedelta(0) <= now - x.at <= timedelta(hours=72)]

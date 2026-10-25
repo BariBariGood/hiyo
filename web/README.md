@@ -1,106 +1,119 @@
-# hiyo web
+# Hiyo onboarding
 
-Onboarding site for hiyo — runs locally, forwards onboarding to the engine.
+The existing Next.js website forwards server requests to the local FastAPI engine.
+It currently supports one configured owner, not independent customer accounts.
 
-## Run (local dev — primary path)
+## User flow
 
-```bash
-npm i
-npm run dev        # http://localhost:3000
+1. Connect WHOOP through official OAuth. The engine reads profile, latest recovery,
+   sleep, strain, and workout records; the UI shows the actual check time.
+2. Choose Companion / Coach / Guide, call days and time, weekly message limit,
+   preferred contact hours, and timezone. Connect Google Calendar with read-only
+   access to the primary calendar. Verify the phone using Twilio Verify.
+3. Save preferences, then explicitly click **Start first call**. The existing Vapi
+   dispatcher uses the selected coach and a fresh WHOOP summary. The opening
+   introduces Hiyo, briefly explains its functions, summarizes dated measurements,
+   and asks what the user would like to ask. If there are no questions, the coach
+   names the planned next contact time and ends using Vapi's endCall tool.
+
+Messages are useful event-based nudges, bounded by the selected weekly limit,
+not guaranteed scheduled daily messages. Delivery uses the existing NUDGE_CHANNEL
+transport. Calls use the existing routine worker, calendar checks, daily budget,
+and weekly limit. The engine must remain running for recurring calls.
+Google Calendar is required for recurring calls; first-call-only setup can skip it.
+
+## Local setup
+
+Use Python 3.12+. From the repository root:
+
+```sh
+uv sync
+uv run uvicorn hiyo.app:app --host 127.0.0.1 --port 8787
 ```
 
-Copy `.env.example` → `.env.local`:
+In web/, copy .env.example to .env.local, configure the engine URL and shared token,
+then run:
 
-- `HIYO_API_URL=http://127.0.0.1:8787` — the local engine (or your tunnel URL).
-- `HIYO_ONBOARDING_TOKEN=` — must match `HIYO_ONBOARDING_TOKEN` in the engine's `.env`.
-- Both unset → `POST /api/onboarding` returns `202 {mode:"preview", stored:false}`.
-
-**Server-side only** — never prefix these with `NEXT_PUBLIC_`.
-
-## For Minji
-
-### Where each step lives
-
-- `app/page.tsx` — landing ("Get started" → `/onboarding`).
-- `components/Wizard.tsx` — the whole wizard. `STEPS` names the 7 steps;
-  each step is a `{step === N && <div className="card">…}` block in order:
-  0 About you · 1 Wearable · 2 Calendar · 3 Phone & consent · 4 Your coach ·
-  5 Review · 6 Done.
-- `app/api/onboarding/route.ts` — Next.js server route (validation + forward).
-- `app/globals.css` — Baymax theme tokens (`--pearl`, `--ink`, `--red`, `--teal`),
-  cards, pills, chips, progress `.dots`, the eyes mark (`.eyes .dot .line`).
-
-### State & validation
-
-`st` is a single `Record<string, any>`; `initial` holds defaults. Every change
-persists a draft to `localStorage["hiyo_onboard_draft"]` — **minus
-`SECRET_FIELDS` (`phone`, `ical_url`) which are stripped before persisting**
-(on reload they're also stripped from the restored draft). `valid()` gates
-`Continue` per step: name required, iCal regex if filled, E.164 + required
-consents on step 3. Errors render into `err` (`role="alert"`).
-
-### API contract — `POST /api/onboarding`
-
-Request JSON:
-```json
-{
-  "prefs": {
-    "preferred_name": "Ivan", "fitness_goal": "text",
-    "usual_workout_days": [1,3,5],
-    "personality": "gentle|focused|analytical",
-    "voice_style": "direct|balanced|natural",
-    "sms_style": "direct|balanced|natural",
-    "intervention_level": "low|medium|high",
-    "quiet_hours_start": "21:00", "quiet_hours_end": "09:00",
-    "morning_checkin_enabled": true, "morning_checkin_time": "08:30"
-  },
-  "phone": "+15551234567",
-  "ical_url": "https://calendar.google.com/calendar/ical/…/basic.ics",
-  "consents": {"agree_calls": true, "agree_texts": false,
-               "ai_not_medical": true, "can_stop": true}
-}
-```
-`agree_calls`, `ai_not_medical`, `can_stop` are **required true** (422 otherwise).
-`usual_workout_days` is 0-indexed Mon=0.
-
-Response (engine): `{"ok":true,"applied":[...pref keys],"pending_phone":bool,"pending_calendar":bool}`.
-Preview mode (no env): `202 {"mode":"preview","stored":false}`.
-Errors: 400 invalid JSON · 422 validation · 502 engine unreachable.
-
-The route validates, then forwards the **entire body** to
-`${HIYO_API_URL}/api/onboarding` with header `X-Onboarding-Token` (8s timeout).
-
-### What the engine applies vs stages
-
-- **Applied live** via the preference memory whitelist (`hiyo/soul/memory.py`
-  `LONG_TERM_KEYS`): everything under `prefs` — incl. `quiet_hours_start/end`
-  and `usual_workout_days`.
-- **Staged, never applied over the network**: `phone` and `ical_url` land in
-  the engine's `runtime/onboarding_pending.json` (chmod 600). Changing the call
-  allowlist remotely is deliberately forbidden — the owner runs
-  `scripts/apply_onboarding.py` locally to confirm and write them into `.env`.
-- If `agree_calls` is false, profile `opted_in` is set false (no calls possible).
-
-### Test end to end locally
-
-```bash
-HIYO_ONBOARDING_TOKEN=testtok uv run uvicorn hiyo.app:app --port 8790   # engine
-HIYO_API_URL=http://127.0.0.1:8790 HIYO_ONBOARDING_TOKEN=testtok npm run dev
-# wizard → Review → Connect; check runtime/onboarding_pending.json + profile
+```sh
+npm ci
+npm run dev
 ```
 
-### Open TODOs
+Keep DISPATCHER=dryrun for QA. Clicking Start first call then returns a clearly
+labelled preview; it does not place a phone call. Live calling requires the
+operator to configure DISPATCHER=vapi, all Vapi variables, and webhook auth.
+The submitted verified number must match a valid OWNER_PHONE_NUMBER if one is set.
 
-- Real wearable connect step (WHOOP pairing UX; Oura/Watch/Garmin when supported).
-- Calendar OAuth option (iCal secret URL is the current path).
-- Styling polish, mobile layout, loading/submit states, error banner styling.
-- i18n; deeper personalization (goals picklist); onboarding edit/re-entry.
+## Required credentials
 
-## Later: deploy to Vercel (preview mode)
+All are server-only; none should use NEXT_PUBLIC_.
 
-```bash
-npx vercel@64.5.0   # root dir: web/
+Engine .env:
+
+- HIYO_ONBOARDING_TOKEN: shared with the web server.
+- HIYO_WEB_URL: e.g. http://localhost:3000.
+- WHOOP_CLIENT_ID, WHOOP_CLIENT_SECRET, WHOOP_REDIRECT_URI.
+- GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI.
+- TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_VERIFY_SERVICE_SID.
+- For calls: VAPI_API_KEY, VAPI_PHONE_NUMBER_ID, PUBLIC_BASE_URL, VAPI_WEBHOOK_SECRET.
+- For message delivery: configure the existing NUDGE_CHANNEL and its credentials.
+
+Register the exact callbacks with the providers:
+
+- http://localhost:3000/api/whoop/callback
+- http://localhost:3000/api/google/callback
+
+For hosted use, replace localhost with the website's HTTPS origin.
+Google OAuth also requires Calendar API enabled and a consent screen/test-user setup.
+WHOOP's permission to use its data in an AI application must be confirmed before launch.
+
+Web .env.local:
+
+- HIYO_API_URL=http://127.0.0.1:8787
+- HIYO_ONBOARDING_TOKEN matching the engine.
+- HIYO_SETUP_KEY: a long random secret for the private owner setup link.
+
+A production build fails closed if HIYO_SETUP_KEY is absent. Open
+/onboarding?setup=<key> once to establish the HttpOnly owner session; the key is
+removed from the address bar. This is a private owner setup gate, not multi-user
+authentication. Do not publish the key. No production deployment is performed by
+this change.
+
+The engine's tunnel guard still blocks operator/setup paths arriving with forwarded
+headers. Keep web and engine on a private connection, or place an authenticated
+gateway between them. Expose only the existing authenticated webhook endpoints to Vapi.
+
+## Persistence and recovery
+
+- Non-sensitive preferences and the current stage persist in localStorage.
+- Phone verification and setup progress persist server-side, including call status.
+- Phone numbers, OAuth tokens, and provider secrets never enter localStorage.
+- Provider tokens stay in runtime/*_oauth.json with file mode 0600. These files
+  are local prototype storage; encrypted per-user storage is still required for
+  a public multi-user service.
+- OAuth state is short-lived and consumed before code exchange. Refresh tokens are
+  used server-side, including rotated refresh tokens.
+- A first-call attempt is recorded before the provider request. Refresh, repeat
+  clicks, and repeat setup saves cannot place a second first call. Ambiguous
+  provider failures require operator review; there is no automatic redial.
+- Unavailable services return an error rather than a successful fake connection.
+
+## Key files and checks
+
+- components/Wizard.tsx: three-stage UI.
+- lib/engine.ts and app/api/: private server forwarding.
+- proxy.ts: private owner setup access.
+- ../hiyo/whoop_oauth.py and google_calendar_oauth.py: server OAuth clients.
+- ../hiyo/app.py: verified setup persistence and first-call dispatch.
+- ../hiyo/dispatcher.py: existing assistant configuration and endCall tool.
+- ../tests/test_onboarding_first_call.py: mocked OAuth -> verification -> setup -> first call.
+- ../tests/test_contact_preferences.py: contact frequency enforcement.
+
+```sh
+uv run pytest -q
+cd web
+npm run build
 ```
 
-Without env vars the site runs in preview mode; add `HIYO_API_URL` +
-`HIYO_ONBOARDING_TOKEN` in the Vercel dashboard when the engine has a stable URL.
+Tests mock all external providers and dispatch calls. Real OAuth consent, SMS
+delivery, and paid phone audio require a separate credentialed acceptance test.

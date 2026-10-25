@@ -6,13 +6,17 @@ from zoneinfo import ZoneInfo
 from ..brief_utils import sanitize_untrusted
 from .models import CoachingContext, Feedback, Observation
 from .personas import CORE, PERSONAS
+from .precall import yesterday_assessment
 
 ROUTINE_RULES = """ROUTINE CALL: begin 'Hi [name], it's Hiyo, your AI coach. How are you feeling today?' and wait.
 The user opted into this routine; if they are busy, offer a short summary or end promptly.
 All personalities: one question at a time, at most two short sentences (about 25 words) per turn. No lectures.
 Positive: 'Okay, sounds good.' Give a compact verified sleep/training/stress summary, highlight actual unusual values,
 remind them of the relevant calendar item and training plan, encourage once, then 'Have a nice day' (evening: 'Have a restful evening').
-Negative: if yesterday's training is unknown, ask; missing records do not mean they skipped.
+Before calling, review the prepared goal, yesterday's plan, synced workouts, sleep, stress, recovery, calendar and memory.
+For a planned session absent after verified full-day sync, say 'You had training planned yesterday, but none was recorded. What got in the way?'
+Negative: ask why directly when checked, not whether they trained. Never call a sync failure a missed workout.
+If training is genuinely unknown, ask. The user's correction overrides device records.
 If they missed training, ask the reason, then whether they want to train today. Use their stated goal for a direct,
 supportive reminder only if the barrier is time or motivation; don't push through illness, pain, or fatigue.
 If they trained, ask about the actual upper/lower/body parts trained. For strong soreness, combine their answer
@@ -71,10 +75,10 @@ def routine_conversation(ctx: CoachingContext, health: Observation | None, feedb
     report = data_summary(ctx, health, trend, now)
     tz = ZoneInfo(profile.timezone)
     yesterday = now.astimezone(tz).date() - timedelta(days=1)
-    trained = answers.trained_yesterday
-    if trained is None and ctx.last_workout and ctx.last_workout.at.astimezone(tz).date() == yesterday:
-        trained = True
-    muscles = list(ctx.last_workout.muscles) if trained and ctx.last_workout and ctx.last_workout.at.astimezone(tz).date() == yesterday else []
+    assessment = yesterday_assessment(ctx, now)
+    trained = assessment["trained"]
+    records = assessment["recorded"]
+    muscles = max(records, key=lambda x: datetime.fromisoformat(x["at"]))["muscles"] if trained and records else []
     lower = {"glutes", "quads", "hamstrings", "calves"}
     upper = {"back", "chest", "shoulders", "arms"}
     focus = "lower body" if muscles and set(muscles) <= lower else "upper body" if muscles and set(muscles) <= upper else "the areas you trained"
@@ -86,7 +90,8 @@ def routine_conversation(ctx: CoachingContext, health: Observation | None, feedb
     adjustment, reassurance, goal_reminder = None, None, None
     short_sleep = bool(health and health.sleep_hours is not None and health.sleep_hours < profile.sleep_target_hours - 1)
     needs_recovery = bool(short_sleep or report["stress_elevated"] or (feedback and (feedback.unwell or feedback.injury_concern or feedback.fatigue == "high")))
-    if answers.feeling == "positive":
+    needs_missed_followup = assessment["status"] == "planned_not_recorded"
+    if answers.feeling == "positive" and not needs_missed_followup:
         stage, question, acknowledgement = "positive_wrap_up", None, "Okay, sounds good."
         if report["unusual_values"]:
             adjustment = {"kind": "review_flagged_readings", "suggestion": "Briefly name the flagged value and its context; consider a lighter plan after checking how the user feels. Don't dismiss it because their answer is positive.", "requires_user_agreement": True}
@@ -96,12 +101,13 @@ def routine_conversation(ctx: CoachingContext, health: Observation | None, feedb
             reassurance = {"gentle": "We can adjust today's plan together.",
                            "focused": "Let's keep today's plan manageable.",
                            "analytical": "A score gives context; it doesn't explain the cause."}[profile.personality]
-    elif answers.feeling == "negative":
-        acknowledgement = {"gentle": "Thanks for telling me.", "focused": "Got it.", "analytical": "That helps put the data in context."}[profile.personality]
+    elif answers.feeling in ("positive", "negative"):
+        acknowledgement = "Okay, sounds good." if answers.feeling == "positive" else {"gentle": "Thanks for telling me.", "focused": "Got it.", "analytical": "That helps put the data in context."}[profile.personality]
         if trained is None:
             stage, question = "ask_training_status", "Did you train yesterday?"
         elif not trained and answers.missed_reason == "unknown":
-            stage, question = "ask_missed_reason", "What got in the way of training yesterday?"
+            stage = "ask_missed_reason"
+            question = "You had training planned yesterday, but none was recorded. What got in the way?" if needs_missed_followup else "What got in the way of training yesterday?"
         elif not trained and answers.missed_reason in ("unwell", "fatigue"):
             stage, question = "recovery_wrap_up", None
             adjustment = {"kind": "rest_day", "suggestion": "Prioritize recovery today and reassess training when the user feels better.", "requires_user_agreement": True}
@@ -141,17 +147,19 @@ def routine_conversation(ctx: CoachingContext, health: Observation | None, feedb
     agenda = [{"title": item.title, "start": item.start.isoformat()} for item in sorted(ctx.agenda, key=lambda x: x.start)
               if calendar_ok and item.start >= now][:2]
     flow = {"stage": stage, "next_question": question, "acknowledgement": acknowledgement,
+            "yesterday_assessment": assessment,
             "data_summary": report, "goal_reminder": goal_reminder, "adjustment": adjustment,
             "reassurance": reassurance, "agenda": agenda,
             "calendar_verified": calendar_ok,
             "training_plan": ctx.planned_workout.model_dump(mode="json") if ctx.planned_workout else None,
+            "training_plan_note": ctx.planned_workout_note,
             "closing": closing if question is None else None,
             "must_wait_for_answer": question is not None}
     payload = {"call_local_time": now.astimezone(tz).isoformat(), "routine": flow, "goal": profile.fitness_goal,
                "last_workout": ctx.last_workout.model_dump(mode="json") if ctx.last_workout else None}
     persona = PERSONAS[profile.personality]
     system = CORE + "\n" + ROUTINE_RULES + "\nPERSONALITY: " + profile.personality + ". " + persona["behavior"]
-    system += "\nFollow only the current stage. Ask its next_question and wait, or give a compact wrap-up and end."
+    system += "\nThe current stage is the starting point. After the user answers, advance naturally using the checked facts and flow rules; never repeat answered questions."
     system += "\nUNTRUSTED_CONTEXT_JSON:\n" + json.dumps(payload, ensure_ascii=False)
     return {"personality": profile.personality, "style": profile.voice_style if channel == "call" else profile.sms_style,
             "first_question": question, "routine": flow, "acknowledgement": acknowledgement,

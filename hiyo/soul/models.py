@@ -71,7 +71,9 @@ class CoachProfile(Contract):
 
     @field_validator("contact_start", "contact_end", "morning_time")
     @classmethod
-    def valid_clock(cls, value):
+    def valid_clock(cls, value, info):
+        if value == "24:00" and info.field_name == "contact_end":
+            return value
         if len(value) != 5:
             raise ValueError("use HH:MM")
         time.fromisoformat(value)
@@ -126,6 +128,22 @@ class AgendaItem(Contract):
     start: AwareDatetime
 
 
+class WorkoutSync(Contract):
+    source: str = Field(min_length=1, max_length=80)
+    checked_at: AwareDatetime
+    covered_from: AwareDatetime
+    covered_until: AwareDatetime
+    complete: bool
+    has_pending_pages: bool
+    simulated: bool
+
+    @model_validator(mode="after")
+    def valid_coverage(self):
+        if self.covered_until <= self.covered_from:
+            raise ValueError("workout coverage must have positive duration")
+        return self
+
+
 class Feedback(Contract):
     id: str = Field(min_length=1, max_length=100)
     at: AwareDatetime
@@ -171,11 +189,15 @@ class CoachingContext(Contract):
     feedback: Feedback | None = None
     last_workout: Workout | None = None
     planned_workout: Workout | None = None
+    planned_workout_note: str = Field(default="", max_length=300)
     next_calendar_event_start: AwareDatetime | None = None
     calendar: Availability = Field(default_factory=Availability)
     stress: StressReading | None = None
     routine_answers: RoutineAnswers = Field(default_factory=RoutineAnswers)
     agenda: list[AgendaItem] = Field(default_factory=list, max_length=20)
+    completed_workouts: list[Workout] = Field(default_factory=list, max_length=180)
+    planned_workouts: list[Workout] = Field(default_factory=list, max_length=180)
+    workout_sync: WorkoutSync | None = None
 
 
 def require_now(now: datetime) -> None:

@@ -56,6 +56,8 @@ class Service:
         self.profile = overlay_profile(profile, self.memory.data)
         self.store = state_store
         self.calendar = calendar
+        from zoneinfo import ZoneInfo
+        self.store.tz = self.calendar.tz = ZoneInfo(self.profile.timezone)
         self.owner_phone = owner_phone or os.environ.get("OWNER_PHONE_NUMBER")
         self.dispatcher = dispatcher or make_dispatcher(self.owner_phone)
         self.nudge_sender = make_nudge_sender(self.owner_phone)
@@ -79,6 +81,9 @@ class Service:
         self.latest_context: ContextSnapshot | None = None
         self.recent_decisions: deque[Decision] = deque(maxlen=20)
         self.last_dispatch_error: str | None = None
+        self.coaching_sources: dict = {}
+        self._soul_engine = None
+        self.latest_precall_brief: dict | None = None
 
         self._ble_queue: asyncio.Queue = asyncio.Queue(maxsize=512)
         self._ble_task: asyncio.Task | None = None
@@ -256,15 +261,42 @@ class Service:
     async def _execute_dispatch(self, decision: Decision, context: ContextSnapshot,
                                 now: datetime, trigger: str = "pre_event_checkin",
                                 stats: WindowStats | None = None) -> None:
+        prepared = None
+        if trigger == "routine_checkin":
+            from time import monotonic
+            from datetime import timedelta
+            started = monotonic()
+            try:
+                prepared = await self.prepare_coaching_call(now)
+                dispatch_now = now + timedelta(seconds=monotonic() - started)
+                latest_context = await self.calendar.snapshot(dispatch_now, activity=self.activity,
+                                                              activity_provenance=self.activity_provenance)
+                guard = decide(stats or WindowStats(now=dispatch_now), latest_context,
+                               self.profile, self.store.state, dispatch_now,
+                               owner_phone=self.owner_phone, trigger=trigger)
+                if guard.action != Action.CALL or guard.candidate_id != decision.candidate_id:
+                    audit.record("precall_blocked", {"reason": guard.reason_code})
+                    return
+                if prepared.evaluation["decision"]["action"] != "propose_call":
+                    audit.record("precall_blocked", {"reason": "coaching_contact_not_eligible"})
+                    return
+                if datetime.fromisoformat(prepared.evaluation["decision"]["scheduled_at"]) > dispatch_now:
+                    audit.record("precall_blocked", {"reason": "prepared_slot_not_due"})
+                    return
+                context, now = latest_context, dispatch_now
+            except Exception:
+                audit.record("precall_blocked", {"reason": "preparation_unavailable"})
+                return
         try:
             self.store.record_dispatch_attempt(decision.candidate_id or "", now)
         except Exception:
             log.exception("state persist failed; refusing dispatch")
             audit.record("dispatch_failed", {"candidate_id": decision.candidate_id, "error": "state persist failed"})
             return
-        brief = build_brief(context, now, profile=self.profile, stats=stats,
-                            self_report=self.self_report, trigger=trigger,
-                            coach=self.coach_plan())
+        brief = (prepared.evaluation["communication"]["brief"] if prepared else
+                 build_brief(context, now, profile=self.profile, stats=stats,
+                             self_report=self.self_report, trigger=trigger,
+                             coach=self.coach_plan()))
         try:
             result = await self.dispatcher.dispatch(self.owner_phone or "", brief)
         except Exception as exc:
@@ -281,7 +313,7 @@ class Service:
                     "candidate_id": decision.candidate_id,
                     "call_id": result.call_id,
                     "dispatcher": self.dispatcher_mode,
-                    "simulated_input": decision.simulated_input,
+                    "simulated_input": decision.simulated_input or bool(prepared and prepared.evaluation["simulated_input"]),
                     "number": self.owner_phone,
                 },
             )
@@ -293,6 +325,44 @@ class Service:
                 "dispatch_failed",
                 {"candidate_id": decision.candidate_id, "error": result.error, "dispatcher": self.dispatcher_mode},
             )
+
+    def get_soul_engine(self):
+        if self._soul_engine is None:
+            from .soul import SoulEngine, SoulStore
+            policy = Path(os.environ.get("HIYO_SOUL_POLICY", str(Path(__file__).resolve().parent.parent / "config/soul_policy.json")))
+            self._soul_engine = SoulEngine.from_policy_file(
+                SoulStore(Path(os.environ.get("HIYO_SOUL_DB", "runtime/soul.sqlite3"))), policy)
+        return self._soul_engine
+
+    async def prepare_coaching_call(self, now: datetime, context=None):
+        from .soul.models import CoachProfile, CoachingContext
+        from .soul.precall import CalendarSource, MemorySource, prepare_call
+        engine = self.get_soul_engine()
+        if context is None:
+            stored = engine.store.read(self.profile.user_id, "profile")
+            remembered_consent = bool(stored and stored[0].get("memory_opt_in"))
+            memory_ok = self.profile.coaching_memory_opt_in
+            profile = CoachProfile(user_id=self.profile.user_id, preferred_name=self.profile.preferred_name,
+                                   personality=self.profile.personality, voice_style=self.profile.voice_style,
+                                   sms_style=self.profile.sms_style, intervention_level=self.profile.intervention_level,
+                                   call_opt_in=self.profile.opted_in, memory_opt_in=remembered_consent if memory_ok is None else memory_ok,
+                                   routine=self.profile.routine, timezone=self.profile.timezone,
+                                   contact_start=f"{self.profile.allowed_contact_hours[0]:02d}:00",
+                                   contact_end=f"{self.profile.allowed_contact_hours[1]:02d}:00",
+                                   fitness_goal=self.profile.fitness_goal, sleep_target_hours=self.profile.sleep_target_hours,
+                                   morning_prep_minutes=self.profile.morning_prep_minutes)
+            note = self.profile.planned_workout if self.profile.planned_workout != "not supplied" else ""
+            context = CoachingContext(profile=profile, event="routine_checkin", planned_workout_note=note[:300])
+        sources = {"memory": MemorySource(engine.store), "calendar": CalendarSource(self.calendar), **self.coaching_sources}
+        prepared = await prepare_call(engine, context, now, sources)
+        if self.self_report.get("feeling") or self.self_report.get("sore") or self.self_report.get("fatigue") != "unknown":
+            import json
+            prepared.evaluation["precall_brief"]["operator_self_report"] = dict(self.self_report)
+            communication = prepared.evaluation.get("communication")
+            if communication:
+                communication["brief"]["system"] += "\nUNTRUSTED_OPERATOR_SELF_REPORT_JSON:\n" + json.dumps(self.self_report)
+        self.latest_precall_brief = prepared.evaluation["precall_brief"]
+        return prepared
 
     def end_call(self, duration_minutes: float = 0.0) -> None:
         self.store.end_call()
@@ -347,6 +417,10 @@ class Service:
             raise ValueError("personality must be gentle|focused|analytical")
         accepted = self.memory.update({key: value})
         self.profile = overlay_profile(self.profile, self.memory.data)
+        if key == "timezone":
+            from zoneinfo import ZoneInfo
+            self.calendar.tz = ZoneInfo(value)
+            self.store.tz = ZoneInfo(value)
         audit.record("profile_update", {"key": key})
         return accepted
 
