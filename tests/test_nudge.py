@@ -195,6 +195,52 @@ def test_call_reply_still_guarded():
     assert d2.action != Action.CALL  # no outstanding nudge -> nothing to escalate
 
 
+def test_owner_request_calls_without_signal():
+    # stale sensor, no elevation, no event, unknown activity — owner asked, so CALL
+    d = run(prof(), trigger="owner_request",
+            stats=make_stats(stale=True, valid_count=0, sustained=False),
+            ctx=make_ctx(opportunity=False, activity="unknown"))
+    assert (d.action, d.reason_code) == (Action.CALL, "OWNER_REQUESTED")
+
+
+def test_owner_request_works_at_low_intervention_and_busy_calendar():
+    # proactive gates don't apply — the owner explicitly asked for this call
+    p = prof(intervention_level="low")
+    d = run(p, trigger="owner_request",
+            stats=make_stats(sustained=False),
+            ctx=make_ctx(busy_now=True, opportunity=False))
+    assert d.action == Action.CALL
+    # but the plain daily cap still applies (not the level cap, which is 0 at low)
+    d = run(p, trigger="owner_request", state=make_state(calls_today=2))
+    assert d.reason_code == "DAILY_CAP"
+
+
+def test_owner_request_keeps_safety_guards():
+    d = run(prof(), trigger="owner_request", state=make_state(kill_switch=True))
+    assert (d.action, d.reason_code) == (Action.IGNORE, "KILL_SWITCH")
+    d = run(prof(), trigger="owner_request", state=make_state(active_call_id="abc"))
+    assert d.reason_code == "ALREADY_IN_CALL"
+    d = run(prof(), trigger="owner_request",
+            state=make_state(last_call_at=NOW - timedelta(minutes=5)))
+    assert d.reason_code == "COOLDOWN"
+    night = NOW.replace(hour=5, minute=30) + timedelta(days=1)  # 22:30 LA
+    d = run(prof(), trigger="owner_request", now=night,
+            stats=make_stats(now=night), ctx=make_ctx(now=night))
+    assert d.reason_code == "QUIET_HOURS"
+    d = run(prof(opted_in=False), trigger="owner_request")
+    assert d.reason_code == "NO_CONSENT"
+    d = run(prof(), trigger="owner_request", owner=None)
+    assert d.reason_code == "RECIPIENT_NOT_VERIFIED"
+
+
+def test_owner_request_deduped_within_bucket():
+    d1 = run(prof(), trigger="owner_request")
+    assert d1.action == Action.CALL
+    d2 = run(prof(), trigger="owner_request",
+             state=make_state(dispatched=[d1.candidate_id]))
+    assert d2.reason_code == "DUPLICATE_CANDIDATE"
+
+
 def test_speculation_rejected_fallback():
     async def bad():
         return "It's normal for readings to rise before a mock interview—anticipation can do that. — hiyo (AI coach)"

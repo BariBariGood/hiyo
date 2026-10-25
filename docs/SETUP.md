@@ -84,7 +84,7 @@ uses the separate Twilio Verify service for one-time phone verification codes.
 1. textbelt.com → buy credits → copy the key → `TEXTBELT_API_KEY`.
 2. `NUDGE_CHANNEL=textbelt`. `PUBLIC_BASE_URL` must be set for replies to arrive.
 3. Test one real SMS: `uv run python scripts/test_nudge.py --yes --channel textbelt`
-4. Reply `OK` (stand down), `CALL` (guarded call now) or `STOP` (kill switch).
+4. Reply `OK` (stand down), `CALL` (hiyo calls you — works at will, not just after a nudge) or `STOP` (kill switch). Any other reply is saved as a self-report.
    Replies are accepted only with a valid Textbelt signature **and** from
    `OWNER_PHONE_NUMBER`.
 

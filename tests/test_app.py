@@ -228,6 +228,25 @@ def test_textbelt_reply_intents(client, monkeypatch):
     assert svc.self_report["feeling"] == "kinda tired"
 
 
+def test_textbelt_reply_call_owner_request(client, monkeypatch):
+    monkeypatch.setenv("TEXTBELT_API_KEY", "k")
+    svc = client.app.state.service
+    import hmac as _h, hashlib as _hh, time as _t
+    # owner verified + contactable at any hour so the decision is deterministic
+    svc.owner_phone = svc.dispatcher.owner_number = "+15555550123"
+    svc.profile.quiet_hours_start = svc.profile.quiet_hours_end = "00:00"
+    svc.profile.allowed_contact_hours = [0, 24]
+    body = json.dumps({"textId": "1", "fromNumber": svc.owner_phone, "text": "CALL"}).encode()
+    ts = str(int(_t.time()))
+    sig = _h.new(b"k", (ts + body.decode()).encode(), _hh.sha256).hexdigest()
+    r = client.post("/textbelt/reply", content=body,
+                    headers={"x-textbelt-timestamp": ts, "x-textbelt-signature": sig})
+    assert r.status_code == 200 and r.json()["intent"] == "call_request"
+    from hiyo.models import Action
+    d = svc.latest_by_trigger["owner_request"]
+    assert (d.action, d.reason_code) == (Action.CALL, "OWNER_REQUESTED")
+
+
 def test_tunnel_allows_textbelt_reply(client, monkeypatch):
     monkeypatch.setenv("TEXTBELT_API_KEY", "")
     r = client.post("/textbelt/reply", json={"fromNumber": "+1", "text": "ok"},

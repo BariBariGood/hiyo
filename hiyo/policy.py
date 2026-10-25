@@ -29,7 +29,7 @@ DECISION_TTL = timedelta(minutes=2)
 CANDIDATE_BUCKET_S = 600  # 10-minute candidate bucket
 OPPORTUNITY_HORIZON = timedelta(minutes=60)
 
-TRIGGERS = {"pre_event_checkin", "morning_checkin", "routine_checkin", "extra_checkin"}
+TRIGGERS = {"pre_event_checkin", "morning_checkin", "routine_checkin", "extra_checkin", "owner_request"}
 UNSUPPORTED_TRIGGERS = {"emergency_detected", "stress_threshold_crossed"}
 SCHEDULED_TRIGGERS = {"morning_checkin", "routine_checkin"}
 # intervention level -> max proactive calls/day (Soul policy.json)
@@ -74,6 +74,7 @@ _PLAIN = {
     "MESSAGE_WEEKLY_CAP": "Chosen weekly message limit reached.",
     "CALL_WEEKLY_CAP": "Chosen weekly call limit reached.",
     "ESCALATED_AFTER_NUDGE": "Un-acknowledged nudge, still elevated — escalating to a call.",
+    "OWNER_REQUESTED": "Owner asked for a call by text.",
     "SCHEDULED_CHECKIN": "Consented scheduled check-in.",
     "EXTRA_CHECKIN": "Operator-requested extra check-in.",
 }
@@ -155,7 +156,8 @@ def decide(
         return ig("CHECKIN_DISABLED")
     if trigger == "extra_checkin" and level != "high":
         return ig("INTERVENTION_LOW")
-    if trigger not in ("pre_event_checkin", "routine_checkin") and LEVEL_CALL_CAP.get(level, 0) == 0:
+    # owner_request is exempt: intervention level gates proactive calls, not requests
+    if trigger not in ("pre_event_checkin", "routine_checkin", "owner_request") and LEVEL_CALL_CAP.get(level, 0) == 0:
         return ig("INTERVENTION_LOW")
 
     # 1. consent / recipient
@@ -201,13 +203,14 @@ def decide(
     if not _within_allowed_hours(profile, now):
         return df("OUTSIDE_ALLOWED_HOURS")
 
-    # 5. calendar guards
-    if not context.calendar_ok:
-        return ig("CALENDAR_UNAVAILABLE")
-    if context.conflicting_events:
-        return ig("CONTEXT_UNCERTAIN")
-    if context.busy_now:
-        return df("CALENDAR_BUSY")
+    # 5. calendar guards (skipped for owner_request — the owner chose the moment)
+    if trigger != "owner_request":
+        if not context.calendar_ok:
+            return ig("CALENDAR_UNAVAILABLE")
+        if context.conflicting_events:
+            return ig("CONTEXT_UNCERTAIN")
+        if context.busy_now:
+            return df("CALENDAR_BUSY")
 
     # 6. call lifecycle guards
     if state.active_call_id:
@@ -222,7 +225,7 @@ def decide(
     today = now.astimezone(ZoneInfo(profile.timezone)).date().isoformat()
     calls_today = state.calls_today if state.calls_date == today else 0
     level_cap = max(1, LEVEL_CALL_CAP.get(level, 0)) if trigger == "routine_checkin" else LEVEL_CALL_CAP.get(level, 0)
-    cap = min(profile.daily_call_cap, level_cap)
+    cap = profile.daily_call_cap if trigger == "owner_request" else min(profile.daily_call_cap, level_cap)
     # Low's signal-driven branch can still nudge, but a zero user call cap
     # must never authorize routine calls or escalation to a call.
     nudge_only = trigger == "pre_event_checkin" and level_cap == 0
@@ -294,7 +297,7 @@ def decide(
             candidate = hashlib.sha256(f"{profile.user_id}|{trigger}|{la_date}".encode()).hexdigest()[:24]
         else:
             bucket = int(now.timestamp() // CANDIDATE_BUCKET_S)
-            candidate = hashlib.sha256(f"{profile.user_id}|extra_checkin|{bucket}".encode()).hexdigest()[:24]
+            candidate = hashlib.sha256(f"{profile.user_id}|{trigger}|{bucket}".encode()).hexdigest()[:24]
 
     # 10. idempotency
     if candidate in state.dispatched_candidate_ids:
@@ -305,7 +308,8 @@ def decide(
         return ig("ADVISOR_DECLINED", candidate_id=candidate)
 
     reason = "RESTING_SIGNAL_NEAR_RELEVANT_EVENT" if trigger == "pre_event_checkin" else (
-        "SCHEDULED_CHECKIN" if scheduled else "EXTRA_CHECKIN"
+        "SCHEDULED_CHECKIN" if scheduled else
+        "OWNER_REQUESTED" if trigger == "owner_request" else "EXTRA_CHECKIN"
     )
     d = _ignore(reason, now, simulated, candidate)
     return d.model_copy(update={"action": Action.CALL, "trigger": trigger})

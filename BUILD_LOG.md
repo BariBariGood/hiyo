@@ -117,3 +117,16 @@
   (300–2000ms, ±25% of expected 60000/bpm, ±20% successive-diff), 30-RR minimum.
 - No motion sensor: patent's f(motion) correction maps to our explicit activity
   flag (moving/exercise → not scored). Display only — not in policy or prompts.
+
+## Owner-requested calls + elevation scale fix
+
+- `owner_request` trigger: texting `CALL` to a Textbelt nudge now rings the
+  owner at will. Skips signal guards (elevation, fresh samples, seated
+  activity, upcoming event) and the proactive intervention-level cap; keeps
+  consent, kill switch, quiet/allowed hours, cooldown, daily/spend caps, and
+  10-min-bucket candidate dedupe. Replies get a confirmation SMS (or the
+  blocking reason). Verified by unit tests only — not yet exercised live.
+- Elevation bar was `median/threshold*10`, so a normal ~73 bpm resting median
+  showed 9/10. Now scores the baseline→baseline+delta band (0 = at or below
+  baseline, 10 = at threshold). `baseline_bpm`/`delta_bpm` added to
+  `/api/status` profile block.

@@ -196,7 +196,7 @@ class Service:
         self.latest_stats = stats
         self.latest_context = context
         self.latest_by_trigger[trigger] = decision
-        if trigger == "pre_event_checkin":
+        if trigger in ("pre_event_checkin", "owner_request"):
             self.latest_decision = decision
         self.recent_decisions.appendleft(decision)
 

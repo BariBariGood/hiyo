@@ -118,7 +118,7 @@ footer{max-width:1500px;margin:16px auto 4px;display:flex;justify-content:space-
     <div class="elev-wrap">
       <div class="elev-label">elevation vs your baseline <span style="font-weight:600">— not a medical score</span></div>
       <div class="elev-track" id="elevTrack"></div>
-      <div class="elev-note" id="elevNote">scale of 1–10 · sustained readings vs declared resting baseline</div>
+      <div class="elev-note" id="elevNote">scale of 0–10 · 0 = at baseline · 10 = baseline + delta</div>
     </div>
   </section>
 
@@ -234,7 +234,7 @@ document.getElementById("ackBtn").onclick=()=>post("/api/nudge/ack",{});
 let last={};
 function esc(s){return String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 
-const TRIGGERS=["pre_event_checkin","morning_checkin","extra_checkin"];
+const TRIGGERS=["pre_event_checkin","morning_checkin","extra_checkin","owner_request"];
 let guardTrigger="pre_event_checkin";
 const tabs=document.getElementById("trigTabs");
 TRIGGERS.forEach(t=>{
@@ -252,10 +252,11 @@ function renderGuards(s){
   document.getElementById("guards").innerHTML=(g||[]).map(x=>`<span class="chip ${x.pass?"ok":"fail"}">${esc(x.guard)}</span>`).join("");
 }
 function elevScore(s){
-  const w=s.window; if(!w||!w.median_bpm||!w.threshold_bpm)return {score:0,hot:false};
-  const frac=Math.max(0,Math.min(1.2,w.median_bpm/w.threshold_bpm));
-  const score=Math.max(0,Math.min(10,Math.round(frac*10)));
-  return {score,hot:!!w.sustained_elevation||w.median_bpm>=w.threshold_bpm};
+  const w=s.window, pr=s.profile||{}, base=pr.baseline_bpm, delta=pr.delta_bpm;
+  if(!w||w.median_bpm==null||base==null||!delta)return {score:0,hot:false};
+  const ratio=(w.median_bpm-base)/delta;
+  const score=Math.max(0,Math.min(10,Math.round(ratio*10)));
+  return {score,hot:!!w.sustained_elevation||(w.threshold_bpm!=null&&w.median_bpm>=w.threshold_bpm)};
 }
 async function tick(){
   try{
@@ -277,7 +278,8 @@ async function tick(){
       const filled=i<ev.score;
       el.className="elev-seg"+(filled?(ev.hot?" on hot":" on"):"")+(i+1===ev.score?" cur":"");
     });
-    const cap=!s.window?"no data yet":s.window.sustained_elevation?"sustained elevation detected":(s.window.median_bpm&&s.window.threshold_bpm&&s.window.median_bpm>=s.window.threshold_bpm*0.85?"approaching baseline+delta":"within typical range");
+    const pr=s.profile||{}, r=(s.window&&s.window.median_bpm!=null&&pr.baseline_bpm!=null&&pr.delta_bpm)?(s.window.median_bpm-pr.baseline_bpm)/pr.delta_bpm:null;
+    const cap=!s.window?"no data yet":s.window.sustained_elevation?"sustained elevation detected":(r==null?"within typical range":r>=1?"above baseline+delta":r>=0.5?"approaching baseline+delta":r>0?"mildly above baseline":"at or below baseline");
     document.getElementById("elevNote").textContent=`level ${ev.score}/10 · ${cap} — not a medical score`;
 
     const d=s.decision;

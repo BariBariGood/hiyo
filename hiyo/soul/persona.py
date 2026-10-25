@@ -58,6 +58,7 @@ TRIGGER_PURPOSE = {
     "pre_event_checkin": "You're calling to offer an optional short check-in and help them prep for an upcoming event.",
     "morning_checkin": "You're making their consented morning check-in call: a quick, warm start-of-day check — how they're feeling and today's plan.",
     "extra_checkin": "You're making an extra opt-in check-in call — just checking in briefly.",
+    "owner_request": "They texted asking you to call — you rang because they asked. Find out what they need; keep it brief.",
 }
 
 
@@ -175,6 +176,8 @@ def opening_message(trigger: str, profile: Profile, context: ContextSnapshot | N
             base = f"Morning {name}, it's your AI coach. Quick check-in — how are you feeling today?"
     elif trigger == "extra_checkin":
         base = f"Hey {name}, it's your AI coach — got a sec for a quick check-in?"
+    elif trigger == "owner_request":
+        base = f"Hey {name}, it's your AI coach — you texted for a call. What's up?"
     else:  # pre_event_checkin
         if context is not None and context.next_event is not None and now is not None:
             title = sanitize_untrusted(context.next_event.title, 40)

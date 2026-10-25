@@ -173,7 +173,10 @@ def guard_report(service: Service, trigger: str = "pre_event_checkin") -> list[d
         {"guard": "calendar ok & not busy & unambiguous", "pass": bool(ctx and ctx.calendar_ok and not ctx.busy_now and not ctx.conflicting_events)},
         {"guard": "no active call / cooldown / caps", "pass": not s.active_call_id and (cooldown_left or 0) <= 0},
     ]
-    if trigger == "pre_event_checkin":
+    if trigger == "owner_request":
+        base = [g for g in base if g["guard"] not in (
+            "intervention level allows calls", "calendar ok & not busy & unambiguous")]
+    elif trigger == "pre_event_checkin":
         base += [
             {"guard": "fresh sufficient samples", "pass": bool(stats and not stats.stale and not stats.sensor_unavailable and stats.valid_count >= p.min_samples)},
             {"guard": "activity seated (not moving/unknown)", "pass": service.activity == "seated"},
@@ -257,6 +260,8 @@ async def status(service: Service = Depends(svc)):
         "kill_switch": s.kill_switch,
         "dispatcher": service.dispatcher_mode,
         "profile": {
+            "baseline_bpm": service.profile.baseline_bpm,
+            "delta_bpm": service.profile.delta_bpm,
             "routine": service.profile.routine.model_dump(mode="json") if service.profile.routine else None,
             "personality": service.profile.personality,
             "preferred_name": service.profile.preferred_name,
@@ -272,7 +277,7 @@ async def status(service: Service = Depends(svc)):
         "ladder": service.ladder_status(),
         "stress": service.stress_estimate(),
         "onboarding": _onboarding_status(),
-        "guards_by_trigger": {t: guard_report(service, t) for t in ("morning_checkin", "extra_checkin")},
+        "guards_by_trigger": {t: guard_report(service, t) for t in ("morning_checkin", "extra_checkin", "owner_request")},
         "decisions_by_trigger": {t: d.model_dump(mode="json") for t, d in service.latest_by_trigger.items()},
         "recent_decisions": [d.model_dump(mode="json") for d in service.recent_decisions],
     }
@@ -896,9 +901,16 @@ async def _handle_reply_intent(intent: str, text: str, service: Service) -> None
     elif intent == "ack":
         service.ack_nudge()
     elif intent == "call_request":
-        # immediate evaluation; skips only the 8-min wait, every guard applies
-        await service.evaluate_once(trigger="pre_event_checkin",
-                                    force_schedule=True, escalate_now=True)
+        # owner asked for a call — signal guards skipped, safety guards kept
+        decision = await service.evaluate_once(trigger="owner_request")
+        if service.nudge_sender is not None:
+            from .models import Action
+            note = ("On it — calling you now. — hiyo (AI coach)" if decision.action == Action.CALL
+                    else f"Can't call right now ({decision.plain_english}) — hiyo (AI coach)")
+            try:
+                await service.nudge_sender.send(service.owner_phone or "", note)
+            except Exception:
+                pass  # confirmation text is best-effort
     else:
         service.set_self_report(feeling=text[:200] if text else None)
         service.ack_nudge()
