@@ -9,6 +9,11 @@
   <br /><a href="https://youtu.be/oYBYS_IyPKU"><b>▶ Watch the demo</b></a>
 </p>
 
+<p align="center">
+  <img src="assets/dashboard-live.gif" alt="Hiyo dashboard streaming live WHOOP heart rate" width="760" />
+  <br /><sub>Operator dashboard streaming live WHOOP heart rate over Bluetooth (real data, not simulated).</sub>
+</p>
+
 > **An AI health coach that cares enough to call — and remembers to follow up.**
 
 Hiyo is a proactive AI coach built to take your wellbeing personally. It brings together wearable health data, your training goals, your feedback, and optional Google Calendar context. You choose daily or weekly routine calls, in the morning or evening: how your workout felt, how you slept, and what your body is ready for next.
