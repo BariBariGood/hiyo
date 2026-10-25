@@ -310,3 +310,13 @@ def test_onboarding_flow(client, monkeypatch, tmp_path):
     assert r.status_code == 404
     r = client.get("/api/status", headers={"cf-connecting-ip": "1.2.3.4"})
     assert r.status_code == 404
+
+
+def test_google_status_ical_env(client, monkeypatch):
+    monkeypatch.setenv("GOOGLE_CALENDAR_ICAL_URL", "https://example.test/basic.ics")
+    monkeypatch.setenv("HIYO_ONBOARDING_TOKEN", "tok")
+    r = client.get("/api/google/status", headers={"X-Onboarding-Token": "tok"})
+    assert r.status_code == 200
+    j = r.json()
+    assert j["source"] == "ical_env" and j["connected"] is True
+    assert "basic.ics" not in str(j)  # URL never returned

@@ -9,7 +9,7 @@ type Draft = {
   calls: number; messages: number; weekdays: number[]; call_time: string;
   contact_start: string; contact_end: string;
 };
-type Connection = { connected?: boolean; configured?: boolean; simulated?: boolean; data_status?: string; checked_at?: string; profile?: { first_name?: string }; latest?: Record<string, { observed_at?: string; score_state?: string }> };
+type Connection = { connected?: boolean; configured?: boolean; simulated?: boolean; source?: string; data_status?: string; checked_at?: string; profile?: { first_name?: string }; latest?: Record<string, { observed_at?: string; score_state?: string }> };
 const defaults: Draft = { preferred_name: "", timezone: "", personality: "gentle", calls: 3, messages: 3,
   weekdays: [0, 2, 4], call_time: "09:00", contact_start: "09:00", contact_end: "20:00" };
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -197,7 +197,9 @@ export default function Wizard() {
         </section>
         <section className="card">
           <h2>Work around your calendar</h2><p className="hint">Connect Google Calendar so Hiyo can see when you're busy and help plan around your day. Read-only access to your primary calendar.</p>
-          <button className="pill" disabled={Boolean(busy)} onClick={() => connect("google")}>{calendar.connected ? "Google Calendar connected ✓" : "Connect Google Calendar"}</button>
+          {calendar.source === "ical_env"
+            ? <p className="verified" role="status">✓ Using your Google Calendar from hiyo's settings (read-only)</p>
+            : <button className="pill" disabled={Boolean(busy)} onClick={() => connect("google")}>{calendar.connected ? "Google Calendar connected ✓" : "Connect Google Calendar"}</button>}
           <p className="fineprint">Needed for recurring calls so Hiyo can avoid busy times. You can choose First call only and connect later.</p>
         </section>
         <section className="card">

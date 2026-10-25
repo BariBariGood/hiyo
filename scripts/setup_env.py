@@ -18,6 +18,11 @@ FIELDS = [
     ("OWNER_PHONE_NUMBER", "Your cell, E.164 e.g. +15551234567", True),
     ("GOOGLE_CALENDAR_ICAL_URL", "Google Calendar secret iCal address (optional now)", True),
     ("TEXTBELT_API_KEY", "Textbelt API key (textbelt.com, optional)", True),
+    ("WHOOP_CLIENT_ID", "WHOOP developer app Client ID (onboarding)", True),
+    ("WHOOP_CLIENT_SECRET", "WHOOP developer app Client Secret (onboarding)", True),
+    ("TWILIO_VERIFY_SERVICE_SID", "Twilio Verify Service SID, starts with VA (onboarding)", True),
+    ("GOOGLE_CLIENT_ID", "Google OAuth Client ID (onboarding calendar, optional)", True),
+    ("GOOGLE_CLIENT_SECRET", "Google OAuth Client Secret (onboarding calendar, optional)", True),
 ]
 E164 = re.compile(r"^\+[1-9]\d{6,14}$")
 

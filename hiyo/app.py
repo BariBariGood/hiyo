@@ -511,7 +511,10 @@ async def google_callback(request: Request, service: Service = Depends(svc)):
 
 @app.get("/api/google/status")
 async def google_status():
-    return await GoogleCalendarOAuth().status()
+    status = await GoogleCalendarOAuth().status()
+    if not status.get("connected") and os.environ.get("GOOGLE_CALENDAR_ICAL_URL"):
+        return {"connected": True, "configured": True, "source": "ical_env"}
+    return status
 
 
 @app.post("/api/onboarding")
