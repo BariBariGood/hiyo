@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/hiyo-logo.gif" alt="Hiyo — your personal health companion" width="640" />
+</p>
+
 # Hiyo
 
 > **An AI health coach that cares enough to call — and remembers to follow up.**
