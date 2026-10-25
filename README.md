@@ -137,7 +137,3 @@ Next steps:
 - [x] Voice delivery (Vapi + Twilio) and SMS nudges (Textbelt) — chosen stack, working live.
 - [ ] Wire Soul multi-day follow-ups into the live loop.
 - [ ] Expand to additional wearable integrations after validating the WHOOP experience.
-
-## Inspiration
-
-[Alan Context](https://github.com/Symbioose/alan-context) informed our thinking about readable health memory, compiler/linter-style checks, and proactive calls. Hiyo extends that direction into everyday coaching, training, sleep, and emotional support. This README uses original wording; no reference implementation code has been copied into this repository.
